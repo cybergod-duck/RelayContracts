@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+.env
+wallet-seed.json
+artifacts/
+cache/
+hardhat-env/
+diag_sweep.js
+*.exe
+RelayWallet*

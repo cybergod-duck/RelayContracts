@@ -1,0 +1,77 @@
+{
+  "name": "cold-storage-wallet",
+  "version": "2.0.0",
+  "description": "Relay Wallet — Multi-chain cold storage with smart sweep to Base USDC",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win",
+    "build:portable": "electron-builder --win portable"
+  },
+  "dependencies": {
+    "ethers": "^5.7.2",
+    "qrcode": "1.5.3"
+  },
+  "devDependencies": {
+    "electron": "^42.3.0",
+    "electron-builder": "^26.8.1"
+  },
+  "build": {
+    "appId": "com.relaywallet.app",
+    "productName": "Relay Wallet",
+    "copyright": "Copyright © 2025 Relay Wallet",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "app.js",
+      "index.html",
+      "preload.js",
+      "wallet-seed.json",
+      "*.png",
+      "*.PNG",
+      "linea.png",
+      "hardhat-env/**/*",
+      "node_modules/**/*",
+      "!node_modules/**/test/**",
+      "!node_modules/**/*.md",
+      "!node_modules/**/.git"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "requestedExecutionLevel": "asInvoker"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Relay Wallet",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "RelayWallet-portable.exe"
+    },
+    "asar": true,
+    "asarUnpack": [
+      "hardhat-env/**/*",
+      "node_modules/ethers/**/*"
+    ],
+    "publish": null
+  }
+}

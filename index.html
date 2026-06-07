@@ -1,0 +1,1539 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+    content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://mainnet.base.org https://polygon.drpc.org https://arb1.arbitrum.io https://mainnet.optimism.io https://bsc-dataseed.binance.org https://api.coingecko.com; img-src 'self' data:;">
+  <title>Relay Wallet</title>
+  <style>
+    /* ================================================================
+       RELAY WALLET v5.5 — Premium Dark Glassmorphism
+       Palette: #0d0d18 canvas purple · #00d2ff cyan · #00ff88 green
+       ================================================================ */
+
+    :root {
+      --bg: #0d0d18;
+      --surface: rgba(13, 13, 24, 0.94);
+      --surface2: rgba(18, 18, 30, 0.88);
+      --border: rgba(0, 210, 255, 0.10);
+      --border-strong: rgba(0, 210, 255, 0.18);
+      --cyan: #00d2ff;
+      --cyan-dim: rgba(0, 210, 255, 0.08);
+      --green: #00ff88;
+      --green-dim: rgba(0, 255, 136, 0.10);
+      --red: #ff4466;
+      --amber: #ffaa00;
+      --text: #e0e0ea;
+      --text2: #b0b0c0;
+      --dim: #5a5a6e;
+      --radius: 14px;
+      --radius-sm: 10px;
+      --font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      --mono: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      width: 100vw;
+      height: 100vh;
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      user-select: none;
+      overflow: hidden;
+    }
+
+    .app {
+      width: 100vw;
+      height: 100vh;
+      background: var(--bg);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      border: 1px solid #00d2ff;
+      /* Fixed: Hardcoded clean blue window frame outline */
+    }
+
+    .app::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(0, 210, 255, 0.018) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0, 210, 255, 0.018) 1px, transparent 1px);
+      background-size: 48px 48px;
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .card {
+      position: relative;
+      z-index: 1;
+      background: var(--surface);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      width: 100%;
+      max-width: 390px;
+    }
+
+    #locked {
+      -webkit-app-region: drag;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      margin: 12px;
+      padding: 18px 20px;
+      animation: fadeIn 0.25s ease;
+      background: transparent !important;
+      border: none !important;
+      box-shadow: none !important;
+    }
+
+    #locked .close-row {
+      -webkit-app-region: no-drag;
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: -4px;
+    }
+
+    #locked input,
+    #locked button,
+    #locked [onclick] {
+      -webkit-app-region: no-drag;
+    }
+
+    .close-btn {
+      cursor: pointer;
+      color: var(--dim);
+      font-size: 15px;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      transition: all 0.2s;
+    }
+
+    .close-btn:hover {
+      color: var(--red);
+      background: rgba(255, 68, 102, 0.10);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .brand h1 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .brand .sub {
+      font-size: 11px;
+      color: var(--dim);
+      font-weight: 400;
+      margin-top: 1px;
+    }
+
+    hr.divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 2px 0;
+    }
+
+    label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.4px;
+      color: var(--dim);
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 600;
+    }
+
+    input {
+      width: 100%;
+      padding: 11px 14px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      background: rgba(0, 0, 0, 0.35);
+      color: var(--text);
+      font-size: 13px;
+      outline: none;
+      margin-bottom: 9px;
+      font-family: inherit;
+      transition: all 0.2s;
+    }
+
+    input:focus {
+      border-color: var(--cyan);
+      box-shadow: 0 0 0 3px var(--cyan-dim);
+    }
+
+    input::placeholder {
+      color: var(--dim);
+    }
+
+    input.pin-input {
+      text-align: center;
+      font-size: 22px;
+      letter-spacing: 14px;
+      padding: 13px 14px;
+      font-family: var(--mono);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 11px;
+      border: none;
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+      letter-spacing: 0.2px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--cyan), #0088cc);
+      color: #06060d;
+      box-shadow: 0 4px 20px rgba(0, 210, 255, 0.12);
+    }
+
+    .btn-primary:hover {
+      box-shadow: 0 6px 28px rgba(0, 210, 255, 0.28);
+      transform: translateY(-1px);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+    }
+
+    .btn-outline {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--dim);
+      font-size: 12px;
+      padding: 10px;
+      font-weight: 500;
+    }
+
+    .btn-outline:hover {
+      border-color: var(--border-strong);
+      color: var(--text);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      border: none;
+      color: var(--dim);
+      font-size: 11px;
+      padding: 8px;
+      cursor: pointer;
+      transition: color 0.2s;
+      font-family: inherit;
+    }
+
+    .btn-ghost:hover {
+      color: var(--cyan);
+    }
+
+    #unlocked {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+      position: relative;
+      z-index: 1;
+      animation: fadeIn 0.3s ease;
+      background: transparent;
+    }
+
+    #unlocked.hidden {
+      display: none !important;
+    }
+
+    .header-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 18px;
+      height: 42px;
+      min-height: 42px;
+      -webkit-app-region: drag;
+      border-bottom: 1px solid var(--border);
+      background: rgba(6, 6, 13, 0.4);
+    }
+
+    .header-bar .title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: 0.8px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .header-bar .title .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 8px var(--green);
+    }
+
+    .header-bar .actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      -webkit-app-region: no-drag;
+    }
+
+    .header-btn {
+      cursor: pointer;
+      color: var(--dim);
+      font-size: 13px;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      transition: all 0.2s;
+      background: none;
+      border: none;
+      font-family: inherit;
+    }
+
+    .header-btn:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .header-btn.danger:hover {
+      color: var(--red);
+      background: rgba(255, 68, 102, 0.10);
+    }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      padding: 10px 16px;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 9px 16px;
+      border: 1px solid var(--border);
+      background: rgba(13, 13, 24, 0.6);
+      color: var(--dim);
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      font-family: inherit;
+      border-radius: 10px;
+      transition: all 0.25s;
+      letter-spacing: 0.2px;
+    }
+
+    .tab.active {
+      background: linear-gradient(135deg, rgba(0, 210, 255, 0.18), rgba(0, 136, 187, 0.14));
+      color: var(--cyan);
+      border-color: rgba(0, 210, 255, 0.35);
+      box-shadow: 0 0 20px rgba(0, 210, 255, 0.06);
+    }
+
+    .tab:hover:not(.active) {
+      border-color: var(--border-strong);
+      color: var(--text2);
+    }
+
+    .tab-content {
+      flex: 1;
+      overflow: hidden;
+      padding: 0 14px 8px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .tab-content::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .tab-content::-webkit-scrollbar-thumb {
+      background: var(--border-strong);
+      border-radius: 4px;
+    }
+
+    .balance-section {
+      text-align: center;
+      padding: 4px 0 6px;
+    }
+
+    .balance-total {
+      font-size: 36px;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--green), #00cc6a);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      letter-spacing: -1px;
+      line-height: 1.1;
+    }
+
+    .balance-total.loading {
+      background: none;
+      -webkit-text-fill-color: var(--dim);
+    }
+
+    .balance-detail {
+      font-size: 13px;
+      color: var(--text2);
+      font-weight: 500;
+      margin-top: 2px;
+    }
+
+    .balance-detail .dim {
+      color: var(--dim);
+    }
+
+    .qr-wrap {
+      display: flex;
+      justify-content: center;
+      padding: 4px 0 6px;
+    }
+
+    .qr-wrap img {
+      border-radius: 14px;
+      border: 2px solid var(--border-strong);
+      width: 130px;
+      height: 130px;
+      box-shadow: 0 0 30px rgba(0, 210, 255, 0.06);
+      transition: box-shadow 0.3s;
+      image-rendering: pixelated;
+      image-rendering: crisp-edges;
+    }
+
+    .qr-wrap img:hover {
+      box-shadow: 0 0 40px rgba(0, 210, 255, 0.14);
+    }
+
+    .qr-label {
+      font-size: 10px;
+      color: var(--dim);
+      text-align: center;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      margin-top: 4px;
+    }
+
+    .address-box {
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      text-align: center;
+      word-break: break-all;
+      font-family: var(--mono);
+      font-size: 11px;
+      margin: 6px 0 8px;
+      color: var(--text2);
+    }
+
+    .copy-row {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+
+    .copy-btn {
+      font-size: 11px;
+      color: var(--cyan);
+      cursor: pointer;
+      background: none;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-family: inherit;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    .copy-btn:hover {
+      background: var(--cyan-dim);
+    }
+
+    .copy-btn.amber {
+      color: var(--amber);
+    }
+
+    .copy-btn.amber:hover {
+      background: rgba(255, 170, 0, 0.08);
+    }
+
+    .send-section {
+      margin-top: 4px;
+    }
+
+    .send-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .send-row input {
+      flex: 1;
+    }
+
+    .send-row .btn {
+      flex: 0;
+      white-space: nowrap;
+      padding: 11px 18px;
+    }
+
+    .input-with-max {
+      position: relative;
+      flex: 1;
+    }
+
+    .input-with-max input {
+      padding-right: 50px;
+    }
+
+    .max-btn {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(0, 210, 255, 0.10);
+      border: none;
+      color: var(--cyan);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 4px 8px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.2s;
+    }
+
+    .max-btn:hover {
+      background: rgba(0, 210, 255, 0.20);
+    }
+
+    .gas-hint {
+      font-size: 10px;
+      color: var(--dim);
+      margin-top: 4px;
+      text-align: right;
+    }
+
+    .tx-section {
+      margin-top: 10px;
+    }
+
+    .tx-section-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 1.2px;
+      color: var(--dim);
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    #txList {
+      max-height: 90px;
+      overflow-y: auto;
+      font-size: 11px;
+    }
+
+    #txList::-webkit-scrollbar {
+      width: 3px;
+    }
+
+    #txList::-webkit-scrollbar-thumb {
+      background: var(--border-strong);
+      border-radius: 3px;
+    }
+
+    .tx-row {
+      padding: 7px 10px;
+      margin-bottom: 2px;
+      border-radius: 6px;
+      background: rgba(0, 0, 0, 0.2);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: background 0.2s;
+    }
+
+    .tx-row:hover {
+      background: rgba(0, 0, 0, 0.4);
+    }
+
+    .tx-in {
+      color: var(--green);
+      font-weight: 600;
+    }
+
+    .tx-out {
+      color: var(--red);
+      font-weight: 600;
+    }
+
+    .tx-hash {
+      color: var(--cyan);
+      cursor: pointer;
+      font-family: var(--mono);
+      font-size: 10px;
+      opacity: 0.7;
+    }
+
+    .tx-hash:hover {
+      opacity: 1;
+    }
+
+    .tx-empty {
+      color: var(--dim);
+      font-size: 11px;
+      text-align: center;
+      padding: 12px;
+    }
+
+    .relay-header {
+      margin-bottom: 14px;
+    }
+
+    .relay-header h2 {
+      font-size: 15px;
+      font-weight: 700;
+      margin-bottom: 2px;
+    }
+
+    .relay-header .sub {
+      font-size: 11px;
+      color: var(--dim);
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid var(--border);
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+
+    .stat-row span:first-child {
+      color: var(--dim);
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+    }
+
+    .stat-row span:last-child {
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .result-ok {
+      color: var(--green);
+      font-weight: 600;
+    }
+
+    .result-err {
+      color: var(--red);
+      font-weight: 600;
+    }
+
+    .result-link {
+      color: var(--cyan);
+      text-decoration: none;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .result-link:hover {
+      text-decoration: underline;
+    }
+
+    .modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.82);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      backdrop-filter: blur(4px);
+      animation: fadeIn 0.2s ease;
+    }
+
+    .modal.hidden {
+      display: none !important;
+    }
+
+    .modal-card {
+      background: var(--surface);
+      backdrop-filter: blur(24px);
+      border: 1px solid var(--border-strong);
+      border-radius: 16px;
+      padding: 24px;
+      width: 320px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+    }
+
+    .modal-card h3 {
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: var(--text);
+    }
+
+    .modal-card .btn-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .modal-card .btn-row .btn {
+      flex: 1;
+    }
+
+    .toast-container {
+      position: fixed;
+      bottom: 14px;
+      left: 14px;
+      right: 14px;
+      z-index: 200;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      pointer-events: none;
+    }
+
+    .toast {
+      padding: 11px 14px;
+      border-radius: var(--radius-sm);
+      font-size: 12px;
+      font-weight: 600;
+      animation: toastIn 0.3s ease, toastOut 0.3s ease 3.5s forwards;
+      pointer-events: auto;
+      backdrop-filter: blur(16px);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .toast-error {
+      background: rgba(255, 68, 102, 0.15);
+      border: 1px solid rgba(255, 68, 102, 0.35);
+      color: #ff6b84;
+    }
+
+    .toast-success {
+      background: rgba(0, 255, 136, 0.10);
+      border: 1px solid rgba(0, 255, 136, 0.30);
+      color: var(--green);
+    }
+
+    .toast-info {
+      background: rgba(0, 210, 255, 0.08);
+      border: 1px solid rgba(0, 210, 255, 0.25);
+      color: var(--cyan);
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(4px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes toastIn {
+      from {
+        opacity: 0;
+        transform: translateY(12px);
+      }
+
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @keyframes toastOut {
+      from {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      to {
+        opacity: 0;
+        transform: translateY(-8px);
+      }
+    }
+
+    @keyframes pulse {
+
+      0%,
+      100% {
+        opacity: 1;
+      }
+
+      50% {
+        opacity: 0.5;
+      }
+    }
+
+    .sending {
+      animation: pulse 1.2s infinite;
+    }
+
+    @keyframes sweepPulse {
+      0%, 100% { box-shadow: 0 0 0px rgba(0,210,255,0); border-color: rgba(0,210,255,0.3); }
+      50%       { box-shadow: 0 0 12px rgba(0,210,255,0.4); border-color: rgba(0,210,255,0.8); }
+    }
+    .sweep-active {
+      animation: sweepPulse 1.2s infinite;
+      background: rgba(0,210,255,0.06) !important;
+    }
+    .sweep-done {
+      border-color: rgba(0,255,136,0.4) !important;
+      background: rgba(0,255,136,0.06) !important;
+      box-shadow: 0 0 8px rgba(0,255,136,0.15);
+    }
+    .sweep-error {
+      border-color: rgba(255,80,80,0.4) !important;
+      background: rgba(255,80,80,0.05) !important;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    .text-center {
+      text-align: center;
+    }
+
+    .text-dim {
+      color: var(--dim);
+    }
+
+    .mt-2 {
+      margin-top: 8px;
+    }
+
+    .mt-3 {
+      margin-top: 12px;
+    }
+
+    .asset-card {
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 8px 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      transition: all 0.2s ease-in-out;
+    }
+
+    .asset-card:hover {
+      background: rgba(255, 255, 255, 0.05);
+      border-color: rgba(0, 210, 255, 0.3);
+    }
+
+    .asset-card.active-card {
+      background: rgba(0, 210, 255, 0.04);
+      border-color: var(--cyan);
+      box-shadow: 0 0 12px rgba(0, 210, 255, 0.15);
+    }
+
+    .dashboard-body {
+      display: flex;
+      flex: 1;
+      width: 100%;
+      height: calc(100% - 42px);
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .sidebar-left {
+      width: 370px;
+      min-width: 370px;
+      height: 100%;
+      border-right: 1px solid var(--border);
+      background: rgba(6, 6, 13, 0.2);
+      display: flex;
+      flex-direction: column;
+      padding: 14px;
+      overflow-y: auto;
+      min-height: 0;
+      gap: 10px;
+    }
+
+    .sidebar-left::-webkit-scrollbar {
+      width: 4px;
+    }
+
+    .sidebar-left::-webkit-scrollbar-thumb {
+      background: var(--border-strong);
+      border-radius: 4px;
+    }
+
+    .dashboard-right {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    .tab-panels {
+      flex: 1;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+      min-height: 0;
+    }
+
+    .networks-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+      gap: 10px;
+      padding: 4px;
+      flex: 1;
+      min-height: 0;
+    }
+
+    .stat-cards-row {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+
+    .stat-card {
+      flex: 1;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      text-align: center;
+      transition: all 0.2s ease;
+    }
+
+    .stat-card:hover {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: var(--border-strong);
+    }
+  </style>
+</head>
+
+<body>
+  <div class="app">
+
+    <div id="locked" class="card">
+      <div class="close-row">
+        <span class="close-btn" onclick="window.wallet.closeApp()">✕</span>
+      </div>
+      <div class="brand" style="justify-content: center; width: 100%; display: flex; flex-direction: column; align-items: center; margin-bottom: 16px; gap: 8px;">
+        <img src="transparent.PNG" alt="Relay Wallet" style="height: 120px; width: auto; object-fit: contain; filter: drop-shadow(0 0 18px rgba(0,210,255,0.35));">
+        <div style="font-size: 11px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; color: var(--text2);">Relay Wallet</div>
+      </div>
+      <hr class="divider">
+
+      <div id="newWallet">
+        <label>Create Password</label>
+        <input type="password" id="createPw" placeholder="Minimum 8 characters" autocomplete="new-password">
+        <input type="password" id="createPw2" placeholder="Confirm password" autocomplete="new-password">
+        <button class="btn btn-primary" onclick="createWallet()">Create New Wallet</button>
+      </div>
+
+      <div id="existingWallet" class="hidden">
+        <label style="text-align:center;font-size:11px;margin-bottom:10px;">Enter PIN to Unlock</label>
+        <input type="password" id="unlockPin" class="pin-input" placeholder="••••••" autocomplete="off" maxlength="6"
+          inputmode="numeric" pattern="[0-9]*"
+          oninput="if(this.value.length===6) pinUnlock();">
+        <button class="btn btn-primary" onclick="pinUnlock()">Unlock</button>
+        <div id="pwToggle"
+          style="display:block;width:100%;text-align:center;margin-top:8px;font-size:11px;color:var(--dim);cursor:pointer;"
+          onclick="togglePassword()">or use password</div>
+        <div id="pwFields" class="hidden">
+          <input type="password" id="unlockPw" placeholder="Enter password" autocomplete="current-password"
+            style="margin-top:8px;">
+          <button class="btn btn-outline" onclick="passwordUnlock()">Unlock with Password</button>
+        </div>
+      </div>
+
+      <div id="error" style="font-size:11px;color:var(--red);text-align:center;min-height:16px;"></div>
+    </div>
+
+    <div id="unlocked" class="hidden">
+      <div class="header-bar">
+        <span class="title"><span class="dot"></span> Relay Wallet</span>
+        <div class="actions">
+          <button class="header-btn" onclick="lock()" title="Lock Wallet" style="padding:2px;border:1px solid rgba(0,210,255,0.4)!important;background:rgba(0,210,255,0.06)!important;border-radius:6px;"><img src="ICON.png" style="width:16px;height:16px;object-fit:contain;display:block;border-radius:3px;"></button>
+          <button class="header-btn danger" onclick="window.wallet.closeApp()" title="Close">✕</button>
+        </div>
+      </div>
+
+      <div class="dashboard-body">
+        <!-- Left Sidebar (Wallet Panel) -->
+        <div id="tabWallet" class="sidebar-left">
+          <div class="balance-section">
+            <div id="totalUsd" class="balance-total loading">$0.00</div>
+          </div>
+
+          <div class="asset-list" style="margin: 4px 0; display: flex; flex-direction: column; gap: 6px;">
+            <!-- ETH Card -->
+            <div id="ethCard" class="asset-card" onclick="selectEthCard(this)">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <img src="ethereum.png" style="width:16px;height:16px;object-fit:contain;">
+                <div style="text-align: left;">
+                  <div style="font-size: 12px; font-weight: 600; color: var(--text);">Ethereum</div>
+                  <div style="font-size: 9px; color: var(--dim);">ETH</div>
+                </div>
+              </div>
+              <div style="text-align: right;">
+                <div id="ethLine" style="font-size: 12px; font-weight: 700; color: var(--text);">-- ETH</div>
+              </div>
+            </div>
+
+            <!-- POL Card -->
+            <div id="polCard" class="asset-card" onclick="selectAsset('polygon', 'native', this)">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <img src="polygon.png" style="width:16px;height:16px;object-fit:contain;">
+                <div style="text-align: left;">
+                  <div style="font-size: 12px; font-weight: 600; color: var(--text);">Polygon</div>
+                  <div style="font-size: 9px; color: var(--dim);">POL</div>
+                </div>
+              </div>
+              <div style="text-align: right;">
+                <div id="polLine" style="font-size: 12px; font-weight: 700; color: var(--text);">-- POL</div>
+              </div>
+            </div>
+
+            <!-- BNB Card -->
+            <div id="bnbCard" class="asset-card" onclick="selectAsset('bsc', 'native', this)">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <img src="bsc.png" style="width:16px;height:16px;object-fit:contain;">
+                <div style="text-align: left;">
+                  <div style="font-size: 12px; font-weight: 600; color: var(--text);">Binance Coin</div>
+                  <div style="font-size: 9px; color: var(--dim);">BNB</div>
+                </div>
+              </div>
+              <div style="text-align: right;">
+                <div id="bnbLine" style="font-size: 12px; font-weight: 700; color: var(--text);">-- BNB</div>
+              </div>
+            </div>
+            
+            <!-- WETH Card -->
+            <div id="wethCard" class="asset-card" onclick="selectWethCard(this)">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 16px;">⛓️</span>
+                <div style="text-align: left;">
+                  <div style="font-size: 12px; font-weight: 600; color: var(--text);">Wrapped Ether</div>
+                  <div style="font-size: 9px; color: var(--dim);">WETH</div>
+                </div>
+              </div>
+              <div style="text-align: right;">
+                <div id="wethLine" style="font-size: 12px; font-weight: 700; color: var(--text);">-- WETH</div>
+              </div>
+            </div>
+
+            <!-- USDC Card -->
+            <div id="usdcCard" class="asset-card" onclick="selectUsdcCard(this)">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 16px;">💵</span>
+                <div style="text-align: left;">
+                  <div style="font-size: 12px; font-weight: 600; color: var(--text);">USD Coin</div>
+                  <div style="font-size: 9px; color: var(--dim);">USDC</div>
+                </div>
+              </div>
+              <div style="text-align: right;">
+                <div id="usdcLine" style="font-size: 12px; font-weight: 700; color: var(--cyan);">-- USDC</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="qr-wrap">
+            <img id="qrImg" src="" alt="QR Code" style="width:110px;height:110px;">
+          </div>
+
+          <div style="display:flex;align-items:center;gap:6px;margin:2px 0;">
+            <div class="address-box" id="addr" style="flex:1;margin:0;font-size:10px;padding:8px;">0x...</div>
+            <button onclick="copyAddr()"
+              style="width:32px;height:32px;min-width:32px;background:rgba(0,210,255,0.08);border:1px solid var(--border);border-radius:10px;color:var(--cyan);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;transition:all 0.2s;"
+              onmouseover="this.style.background='rgba(0,210,255,0.16)';this.style.borderColor='var(--cyan)'"
+              onmouseout="this.style.background='rgba(0,210,255,0.08)';this.style.borderColor='var(--border)'">📋</button>
+          </div>
+
+          <div style="margin-top:auto;">
+            <div class="send-section">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+                <span style="font-size:11px;color:var(--text);font-weight:600;">Network:</span>
+                <select id="sendNetwork" onchange="estimateGas(); updateQrCode(); setMaxSendLabel();" style="background:rgba(0,0,0,0.5);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:11px;padding:2px 6px;outline:none;font-family:inherit;cursor:pointer;">
+                  <option value="base">Base</option>
+                  <option value="polygon">Polygon</option>
+                  <option value="arbitrum">Arbitrum</option>
+                  <option value="optimism">Optimism</option>
+                  <option value="bsc">BSC</option>
+                  <option value="linea">Linea</option>
+                </select>
+              </div>
+              <!-- Asset is always USDC — hidden select keeps sendEth() logic intact -->
+              <select id="sendToken" style="display:none;"><option value="usdc" selected>USDC</option></select>
+              <div style="display:flex; gap:6px; margin-bottom:6px; align-items:center;">
+                <div class="input-with-max" style="flex:1; margin-bottom:0;">
+                  <input type="text" id="sendTo" placeholder="0x... destination address" style="margin-bottom:0; padding:8px 12px; font-size:12px;">
+                  <button class="max-btn" onclick="saveCurrentAddress()" title="Save current address" style="font-size:9px; padding:3px 6px;">SAVE</button>
+                </div>
+                <select id="addressBookDropdown" onchange="selectSavedAddress()" style="width:100px; height:34px; background:rgba(0,0,0,0.35); color:var(--text2); border:1px solid var(--border); border-radius:10px; font-size:11px; padding:0 6px; outline:none; cursor:pointer; font-family:inherit;">
+                  <option value="">Addresses 📖</option>
+                </select>
+              </div>
+              <div class="send-row">
+                <div class="input-with-max">
+                  <input type="number" id="sendAmount" placeholder="0.00 USDC" step="0.0001" min="0.0001" style="padding:8px 12px; font-size:12px;">
+                  <button class="max-btn" onclick="setMaxSend()" style="font-size:9px; padding:3px 6px;">MAX</button>
+                </div>
+                <button class="btn btn-primary" onclick="sendEth()" style="margin-top: 0; padding:8px 14px; font-size:12px; height:34px; width:auto; min-width:80px;">Send USDC</button>
+              </div>
+              <div class="gas-hint" id="gasHint" style="font-size:9px; margin-top:2px;"></div>
+              <div id="sendResult" style="font-size:11px;margin-top:4px;min-height:16px;"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Column (Content Panel) -->
+        <div class="dashboard-right">
+          <div class="tabs" style="align-items: center; display: flex;">
+            <button class="tab active" onclick="switchTab('networks')">🌐 Networks</button>
+            <button class="tab" onclick="switchTab('relay')">⬡ Relay</button>
+            <button onclick="openDeployerModal()" style="margin-left:auto;font-size:10px;color:var(--cyan);border:1px solid rgba(0,210,255,0.25);padding:4px 8px;border-radius:6px;background:rgba(0,210,255,0.06);cursor:pointer;font-family:inherit;font-weight:600;transition:all 0.2s;">🚀 Deploy Contracts</button>
+          </div>
+
+          <div class="tab-panels">
+            <div id="tabNetworks" class="tab-content" style="display:flex;flex-direction:column;gap:10px;">
+              <div class="networks-grid">
+                <!-- Polygon Network Card -->
+                <div class="network-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:4px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:4px;margin-bottom:2px;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                      <img src="polygon.png" style="width:16px;height:16px;object-fit:contain;">
+                      <span style="font-size:13px;font-weight:700;color:var(--text);">Polygon Network</span>
+                    </div>
+                    <span style="font-size:9px;color:var(--green);background:rgba(0,255,136,0.08);padding:1px 5px;border-radius:10px;font-weight:700;">Connected</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:3px;font-size:11px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">POL:</span><span id="netPolyPol" style="color:var(--text);font-weight:600;">0.00 POL</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">WETH:</span><span id="netPolyWeth" style="color:var(--text);font-weight:600;">0.00 WETH</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">USDC:</span><span id="netPolyUsdc" style="color:var(--cyan);font-weight:600;">0.00 USDC</span></div>
+                  </div>
+                  <!-- Polygon Deployment Action -->
+                  <div id="polyDeployCard" style="border-top:1px dashed rgba(255,170,0,0.25);margin-top:auto;padding-top:4px;display:flex;flex-direction:column;gap:3px;align-items:center;text-align:center;">
+                    <div style="font-size:10px;font-weight:700;color:var(--amber);">Relay Not Deployed</div>
+                    <button class="btn btn-primary" id="deployPolyBtn" onclick="deployPolygonRelay()" style="background:linear-gradient(135deg, var(--amber), #cc8800);color:#06060d;width:100%;padding:4px;font-size:9px;border-radius:5px;">Deploy Relay</button>
+                    <div id="deployPolyStatus" style="font-size:9px;color:var(--text2);min-height:10px;width:100%;word-break:break-all;"></div>
+                  </div>
+                  <div id="polyDeployedCard" class="hidden" style="border-top:1px solid rgba(0,255,136,0.15);margin-top:auto;padding-top:4px;display:flex;flex-direction:column;gap:2px;font-size:10px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">Relay Contract:</span><span id="netPolyRelayAddr" style="color:var(--cyan);font-family:var(--mono);font-size:9px;cursor:pointer;">0x...</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">Proxy Contract:</span><span id="netPolyProxyAddr" style="color:var(--cyan);font-family:var(--mono);font-size:9px;cursor:pointer;">0x...</span></div>
+                  </div>
+                </div>
+
+                <!-- Arbitrum Network Card -->
+                <div class="network-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:4px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:4px;margin-bottom:2px;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                      <img src="arbitrum.png" style="width:16px;height:16px;object-fit:contain;">
+                      <span style="font-size:13px;font-weight:700;color:var(--text);">Arbitrum Network</span>
+                    </div>
+                    <span style="font-size:9px;color:var(--green);background:rgba(0,255,136,0.08);padding:1px 5px;border-radius:10px;font-weight:700;">Connected</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:3px;font-size:11px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">ETH:</span><span id="netArbEth" style="color:var(--text);font-weight:600;">0.00 ETH</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">WETH:</span><span id="netArbWeth" style="color:var(--text);font-weight:600;">0.00 WETH</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">USDC:</span><span id="netArbUsdc" style="color:var(--cyan);font-weight:600;">0.00 USDC</span></div>
+                  </div>
+                  <div id="arbDeployedCard" style="border-top:1px solid rgba(255,255,255,0.05);margin-top:auto;padding-top:4px;display:flex;flex-direction:column;gap:2px;font-size:10px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">Relay Contract:</span><span id="netArbRelayAddr" style="color:var(--cyan);font-family:var(--mono);font-size:9px;cursor:pointer;">0x...</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">Proxy Contract:</span><span id="netArbProxyAddr" style="color:var(--cyan);font-family:var(--mono);font-size:9px;cursor:pointer;">0x...</span></div>
+                  </div>
+                </div>
+
+                <!-- Optimism Network Card -->
+                <div class="network-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:4px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:4px;margin-bottom:2px;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                      <img src="optimism.png" style="width:16px;height:16px;object-fit:contain;">
+                      <span style="font-size:13px;font-weight:700;color:var(--text);">Optimism Network</span>
+                    </div>
+                    <span style="font-size:9px;color:var(--green);background:rgba(0,255,136,0.08);padding:1px 5px;border-radius:10px;font-weight:700;">Connected</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:3px;font-size:11px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">ETH:</span><span id="netOpEth" style="color:var(--text);font-weight:600;">0.00 ETH</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">WETH:</span><span id="netOpWeth" style="color:var(--text);font-weight:600;">0.00 WETH</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">USDC:</span><span id="netOpUsdc" style="color:var(--cyan);font-weight:600;">0.00 USDC</span></div>
+                  </div>
+                  <div id="opDeployedCard" style="border-top:1px solid rgba(255,255,255,0.05);margin-top:auto;padding-top:4px;display:flex;flex-direction:column;gap:2px;font-size:10px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">Relay Contract:</span><span id="netOpRelayAddr" style="color:var(--cyan);font-family:var(--mono);font-size:9px;cursor:pointer;">0x...</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">Proxy Contract:</span><span id="netOpProxyAddr" style="color:var(--cyan);font-family:var(--mono);font-size:9px;cursor:pointer;">0x...</span></div>
+                  </div>
+                </div>
+
+                <!-- BSC Network Card -->
+                <div class="network-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:4px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:4px;margin-bottom:2px;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                      <img src="bsc.png" style="width:16px;height:16px;object-fit:contain;">
+                      <span style="font-size:13px;font-weight:700;color:var(--text);">BSC Network</span>
+                    </div>
+                    <span style="font-size:9px;color:var(--green);background:rgba(0,255,136,0.08);padding:1px 5px;border-radius:10px;font-weight:700;">Connected</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:3px;font-size:11px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">BNB:</span><span id="netBscBnb" style="color:var(--text);font-weight:600;">0.00 BNB</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">WBNB:</span><span id="netBscWeth" style="color:var(--text);font-weight:600;">0.00 WBNB</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">USDC:</span><span id="netBscUsdc" style="color:var(--cyan);font-weight:600;">0.00 USDC</span></div>
+                  </div>
+                  <div id="bscDeployedCard" style="border-top:1px solid rgba(255,255,255,0.05);margin-top:auto;padding-top:4px;display:flex;flex-direction:column;gap:2px;font-size:10px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">Relay Contract:</span><span id="netBscRelayAddr" style="color:var(--cyan);font-family:var(--mono);font-size:9px;cursor:pointer;">0x...</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">Proxy Contract:</span><span id="netBscProxyAddr" style="color:var(--cyan);font-family:var(--mono);font-size:9px;cursor:pointer;">0x...</span></div>
+                  </div>
+                </div>
+
+                <!-- Base Network Card -->
+                <div class="network-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:4px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:4px;margin-bottom:2px;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                      <img src="base.png" style="width:16px;height:16px;object-fit:contain;">
+                      <span style="font-size:13px;font-weight:700;color:var(--text);">Base Network</span>
+                    </div>
+                    <span style="font-size:9px;color:var(--green);background:rgba(0,255,136,0.08);padding:1px 5px;border-radius:10px;font-weight:700;">Connected</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:3px;font-size:11px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">ETH:</span><span id="netBaseEth" style="color:var(--text);font-weight:600;">0.00 ETH</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">WETH:</span><span id="netBaseWeth" style="color:var(--text);font-weight:600;">0.00 WETH</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">USDC:</span><span id="netBaseUsdc" style="color:var(--cyan);font-weight:600;">0.00 USDC</span></div>
+                  </div>
+                  <div id="baseDeployedCard" style="border-top:1px solid rgba(255,255,255,0.05);margin-top:auto;padding-top:4px;display:flex;flex-direction:column;gap:2px;font-size:10px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">Relay Contract:</span><span id="netBaseRelayAddr" style="color:var(--cyan);font-family:var(--mono);font-size:9px;cursor:pointer;">0x...</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">Proxy Contract:</span><span id="netBaseProxyAddr" style="color:var(--cyan);font-family:var(--mono);font-size:9px;cursor:pointer;">0x...</span></div>
+                  </div>
+                </div>
+
+                <!-- Linea Network Card -->
+                <div class="network-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:4px;">
+                  <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:4px;margin-bottom:2px;">
+                    <div style="display:flex;align-items:center;gap:6px;">
+                      <img src="linea.png" style="width:16px;height:16px;object-fit:contain;">
+                      <span style="font-size:13px;font-weight:700;color:var(--text);">Linea Network</span>
+                    </div>
+                    <span style="font-size:9px;color:var(--green);background:rgba(0,255,136,0.08);padding:1px 5px;border-radius:10px;font-weight:700;">Connected</span>
+                  </div>
+                  <div style="display:flex;flex-direction:column;gap:3px;font-size:11px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">ETH:</span><span id="netLineaEth" style="color:var(--text);font-weight:600;">0.00 ETH</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">WETH:</span><span id="netLineaWeth" style="color:var(--text);font-weight:600;">0.00 WETH</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">USDC:</span><span id="netLineaUsdc" style="color:var(--cyan);font-weight:600;">0.00 USDC</span></div>
+                  </div>
+                  <div id="lineaDeployedCard" style="border-top:1px solid rgba(255,255,255,0.05);margin-top:auto;padding-top:4px;display:flex;flex-direction:column;gap:2px;font-size:10px;">
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">Relay Contract:</span><span id="netLineaRelayAddr" style="color:var(--cyan);font-family:var(--mono);font-size:9px;cursor:pointer;">0x...</span></div>
+                    <div style="display:flex;justify-content:space-between;"><span style="color:var(--dim);">Proxy Contract:</span><span id="netLineaProxyAddr" style="color:var(--cyan);font-family:var(--mono);font-size:9px;cursor:pointer;">0x...</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div id="tabRelay" class="tab-content hidden" style="display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;">
+              <div class="stat-cards-row">
+                <div class="stat-card">
+                  <div id="relayNativeLabel" style="font-size:10px;color:var(--dim);text-transform:uppercase;margin-bottom:4px;">ETH</div>
+                  <div id="relayEthBal" style="font-size:13px;font-weight:700;color:var(--text);">-- ETH</div>
+                </div>
+                <div class="stat-card">
+                  <div id="relayWethLabel" style="font-size:10px;color:var(--dim);text-transform:uppercase;margin-bottom:4px;">WETH</div>
+                  <div id="relayWethBal" style="font-size:13px;font-weight:700;color:var(--text);">-- WETH</div>
+                </div>
+                <div class="stat-card">
+                  <div style="font-size:10px;color:var(--dim);text-transform:uppercase;margin-bottom:4px;">USDC</div>
+                  <div id="relayUsdcBal" style="font-size:13px;font-weight:700;color:var(--cyan);">-- USDC</div>
+                </div>
+              </div>
+
+              <div style="display:flex; gap:12px; flex:1; min-height:170px; margin-top:4px;">
+                <!-- Left Column: Smart Sweep -->
+                <div style="flex:1; display:flex; flex-direction:column; background:rgba(255,255,255,0.02); border:1px solid var(--border); border-radius:12px; padding:10px; min-height:0;">
+                  <div style="font-size:11px; font-weight:700; color:var(--text); margin-bottom:8px; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">⚡ Smart Sweep
+                    <span style="float:right;font-size:9px;font-weight:400;color:var(--text2);text-transform:none;letter-spacing:0;">→ Base USDC</span>
+                  </div>
+
+                  <!-- Hidden relay network selector kept for refreshRelay() compatibility -->
+                  <select id="relayNetwork" onchange="refreshRelay(); refreshTxHistory();" style="display:none;">
+                    <option value="base">Base</option>
+                    <option value="polygon">Polygon</option>
+                    <option value="arbitrum">Arbitrum</option>
+                    <option value="optimism">Optimism</option>
+                    <option value="bsc">BSC</option>
+                    <option value="linea">Linea</option>
+                  </select>
+
+                  <!-- Pipeline Network List -->
+                  <div id="sweepPipeline" style="display:flex;flex-direction:column;gap:4px;margin-bottom:8px;flex:1;">
+                    <div class="sweep-row" id="sweep-row-polygon"   data-net="polygon"  style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:7px;border:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.2);transition:all 0.3s;">
+                      <img src="polygon.png" style="width:16px;height:16px;object-fit:contain;">
+                      <span style="font-size:10px;font-weight:600;color:var(--text);flex:1;">Polygon</span>
+                      <span class="sweep-row-status" style="font-size:9px;color:var(--text2);">idle</span>
+                      <span class="sweep-row-amount" style="font-size:9px;color:var(--green);display:none;"></span>
+                    </div>
+                    <div class="sweep-row" id="sweep-row-arbitrum"  data-net="arbitrum" style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:7px;border:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.2);transition:all 0.3s;">
+                      <img src="arbitrum.png" style="width:16px;height:16px;object-fit:contain;">
+                      <span style="font-size:10px;font-weight:600;color:var(--text);flex:1;">Arbitrum</span>
+                      <span class="sweep-row-status" style="font-size:9px;color:var(--text2);">idle</span>
+                      <span class="sweep-row-amount" style="font-size:9px;color:var(--green);display:none;"></span>
+                    </div>
+                    <div class="sweep-row" id="sweep-row-optimism"  data-net="optimism" style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:7px;border:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.2);transition:all 0.3s;">
+                      <img src="optimism.png" style="width:16px;height:16px;object-fit:contain;">
+                      <span style="font-size:10px;font-weight:600;color:var(--text);flex:1;">Optimism</span>
+                      <span class="sweep-row-status" style="font-size:9px;color:var(--text2);">idle</span>
+                      <span class="sweep-row-amount" style="font-size:9px;color:var(--green);display:none;"></span>
+                    </div>
+                    <div class="sweep-row" id="sweep-row-bsc"       data-net="bsc"      style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:7px;border:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.2);transition:all 0.3s;">
+                      <img src="BSC.png" style="width:16px;height:16px;object-fit:contain;">
+                      <span style="font-size:10px;font-weight:600;color:var(--text);flex:1;">BSC</span>
+                      <span class="sweep-row-status" style="font-size:9px;color:var(--text2);">idle</span>
+                      <span class="sweep-row-amount" style="font-size:9px;color:var(--green);display:none;"></span>
+                    </div>
+                    <div class="sweep-row" id="sweep-row-linea"     data-net="linea"    style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:7px;border:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.2);transition:all 0.3s;">
+                      <img src="linea.png" style="width:16px;height:16px;object-fit:contain;">
+                      <span style="font-size:10px;font-weight:600;color:var(--text);flex:1;">Linea</span>
+                      <span class="sweep-row-status" style="font-size:9px;color:var(--text2);">idle</span>
+                      <span class="sweep-row-amount" style="font-size:9px;color:var(--green);display:none;"></span>
+                    </div>
+                    <div class="sweep-row" id="sweep-row-base"      data-net="base"     style="display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:7px;border:1px solid rgba(0,255,136,0.15);background:rgba(0,255,136,0.04);transition:all 0.3s;">
+                      <img src="Base.png" style="width:16px;height:16px;object-fit:contain;">
+                      <span style="font-size:10px;font-weight:600;color:var(--green);flex:1;">Base <span style="color:var(--text2);font-weight:400;">(destination)</span></span>
+                      <span class="sweep-row-status" style="font-size:9px;color:var(--text2);">collecting</span>
+                      <span class="sweep-row-amount" style="font-size:9px;color:var(--green);display:none;"></span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <button class="btn btn-outline" id="sweepBtn" onclick="sweepAllNetworks()"
+                      style="width:100%;margin-bottom:4px;padding:8px 10px;border-color:rgba(0,255,136,0.3);color:var(--green);background:#06060d;font-weight:700;font-size:11px;height:34px;">⚡ Sweep All to Base USDC</button>
+                    <div id="sweepResult" style="font-size:9px;min-height:12px;text-align:center;color:var(--text2);"></div>
+                  </div>
+                </div>
+
+                <!-- Right Column: Custom Bridge -->
+                <div style="flex:1; display:flex; flex-direction:column; background:rgba(255,255,255,0.02); border:1px solid var(--border); border-radius:12px; padding:10px; min-height:0;">
+                  <div style="font-size:11px; font-weight:700; color:var(--text); margin-bottom:8px; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">🌁 Custom Bridge</div>
+                  
+                  <div style="display:flex; flex-direction:column; gap:4px; font-size:11px; margin-bottom:6px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between;">
+                      <span style="color:var(--text2);">From:</span>
+                      <select id="bridgeSrcNetwork" onchange="setMaxBridge()" style="background:rgba(0,0,0,0.5);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:11px;padding:2px 6px;outline:none;font-family:inherit;cursor:pointer;">
+                        <option value="base">Base</option>
+                        <option value="polygon">Polygon</option>
+                        <option value="arbitrum">Arbitrum</option>
+                        <option value="optimism">Optimism</option>
+                        <option value="bsc">BSC</option>
+                        <option value="linea">Linea</option>
+                      </select>
+                    </div>
+                    <div style="display:flex; align-items:center; justify-content:space-between;">
+                      <span style="color:var(--text2);">To:</span>
+                      <select id="bridgeDestNetwork" style="background:rgba(0,0,0,0.5);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:11px;padding:2px 6px;outline:none;font-family:inherit;cursor:pointer;">
+                        <option value="arbitrum">Arbitrum</option>
+                        <option value="optimism">Optimism</option>
+                        <option value="polygon">Polygon</option>
+                        <option value="base">Base</option>
+                        <option value="linea">Linea</option>
+                      </select>
+                    </div>
+                    <div style="display:flex; align-items:center; justify-content:space-between;">
+                      <span style="color:var(--text2);">Asset:</span>
+                      <select id="bridgeAsset" onchange="setMaxBridge()" style="background:rgba(0,0,0,0.5);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:11px;padding:2px 6px;outline:none;font-family:inherit;cursor:pointer;">
+                        <option value="eth">ETH → USDC (auto-swap)</option>
+                        <option value="usdc">USDC</option>
+                        <option value="weth">WETH</option>
+                      </select>
+                    </div>
+                  </div>
+                  
+                  <div class="input-with-max" style="margin-bottom:6px; flex:none;">
+                    <input type="number" id="bridgeAmount" placeholder="0.00" step="0.01" min="0.01" style="padding:6px 10px; font-size:11px; margin-bottom:0; padding-right:50px;">
+                    <button class="max-btn" onclick="setMaxBridge()" style="font-size:9px; padding:3px 6px; right:4px;">MAX</button>
+                  </div>
+                  
+                  <div style="margin-top:auto;">
+                    <button class="btn btn-primary" onclick="executeCustomBridge()"
+                      style="width:100%;padding:8px 10px;font-size:11px;background:linear-gradient(135deg, var(--cyan), #0088cc);color:#06060d;font-weight:700;height:34px;">Bridge Asset</button>
+                    <div id="bridgeResult" style="font-size:9px;min-height:12px;text-align:center;color:var(--text2);"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Recent Transactions -->
+              <div class="tx-section" style="display:flex; flex-direction:column; margin-top:8px; border-top:1px solid var(--border); padding-top:6px;">
+                <div class="tx-section-label" style="color:var(--text);margin-bottom:4px;font-size:9px;text-transform:uppercase;letter-spacing:0.5px;">Recent Transactions</div>
+                <div id="txList" style="max-height:200px; overflow-y:auto;">
+                  <div class="tx-empty">No transactions yet</div>
+                </div>
+              </div>
+
+              <div style="display:flex;gap:8px;margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,0.03);">
+                <button class="btn btn-outline" onclick="setupPin()" id="pinSetupBtn"
+                  style="flex:1;color:var(--amber);border-color:rgba(255,170,0,0.15);padding:6px;font-size:10px;">🔑 Change PIN</button>
+                <button class="btn btn-outline" onclick="exportPrivateKey()"
+                  style="flex:1;color:var(--red);border-color:rgba(255,68,102,0.15);padding:6px;font-size:10px;">⚠️ Export Key</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="pinModal" class="modal hidden">
+      <div class="modal-card">
+        <h3>Set Up PIN Unlock</h3>
+        <input type="password" id="pinInput" placeholder="4-8 digit PIN" maxlength="8" inputmode="numeric"
+          pattern="[0-9]*" autocomplete="off" style="text-align:center;font-size:18px;letter-spacing:10px;">
+        <input type="password" id="pinConfirm" placeholder="Confirm PIN" maxlength="8" inputmode="numeric"
+          pattern="[0-9]*" autocomplete="off" style="text-align:center;font-size:18px;letter-spacing:10px;">
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="confirmPin()">Save PIN</button>
+          <button class="btn btn-outline" onclick="closePinModal()">Cancel</button>
+        </div>
+        <div id="pinError" style="font-size:11px;color:var(--red);text-align:center;margin-top:8px;min-height:16px;">
+        </div>
+      </div>
+    </div>
+
+    <!-- Deployer Modal -->
+    <div id="deployModal" class="modal hidden">
+      <div class="modal-card" style="width: 440px; max-width: 90%; background: #0c0c14;">
+        <h3 style="margin-bottom: 6px; display: flex; align-items: center; gap: 8px;">🚀 Multi-Chain Contract Deployer</h3>
+        <p style="font-size: 10px; color: var(--dim); line-height: 1.4; margin-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px; text-align: left;">
+          Deploy custom UniswapV3Relay fee-protected swap proxy contracts to direct 100% of transaction fees to your treasury wallet. The wallet must be funded with native gas tokens (ETH or BNB) on the respective chain to deploy.
+        </p>
+
+        <!-- Wallet Address Block inside modal -->
+        <div style="background: rgba(0, 0, 0, 0.4); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; font-family: var(--mono); font-size: 11px;">
+          <div style="display: flex; flex-direction: column; gap: 2px; text-align: left;">
+            <span style="font-size: 9px; color: var(--dim); text-transform: uppercase; font-family: var(--font); font-weight: 600;">Fund Deployment Address:</span>
+            <span id="deployerModalAddress" style="color: var(--text2); word-break: break-all;">0x...</span>
+          </div>
+          <button onclick="copyAddr()" style="background: rgba(0,210,255,0.08); border: 1px solid var(--border); border-radius: 6px; color: var(--cyan); cursor: pointer; padding: 4px 8px; font-size: 10px; transition: all 0.2s; font-family: var(--font); font-weight: 600; border: 1px solid var(--border);">Copy</button>
+        </div>
+        
+        <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; width: 100%;">
+          <!-- Base -->
+          <div class="deploy-item" style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.02); padding: 8px; border: 1px solid var(--border); border-radius: 8px; width: 100%; box-sizing: border-box;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <img src="base.png" style="width:16px; height:16px; object-fit:contain;">
+              <span style="font-size: 11px; font-weight: 600;">Base</span>
+            </div>
+            <div id="deployerStatus_base" style="font-size: 10px; margin-left: 8px; margin-right: auto; text-align: left;"></div>
+            <button class="btn btn-primary" id="deployerBtn_base" onclick="runContractDeployment('base')" style="width: auto; padding: 4px 10px; font-size: 9px; border-radius: 6px; margin: 0; min-width: 70px;">Deploy</button>
+          </div>
+          
+          <!-- Polygon -->
+          <div class="deploy-item" style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.02); padding: 8px; border: 1px solid var(--border); border-radius: 8px; width: 100%; box-sizing: border-box;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <img src="polygon.png" style="width:16px; height:16px; object-fit:contain;">
+              <span style="font-size: 11px; font-weight: 600;">Polygon</span>
+            </div>
+            <div id="deployerStatus_polygon" style="font-size: 10px; margin-left: 8px; margin-right: auto; text-align: left;"></div>
+            <button class="btn btn-primary" id="deployerBtn_polygon" onclick="runContractDeployment('polygon')" style="width: auto; padding: 4px 10px; font-size: 9px; border-radius: 6px; margin: 0; min-width: 70px;">Deploy</button>
+          </div>
+          
+          <!-- Arbitrum -->
+          <div class="deploy-item" style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.02); padding: 8px; border: 1px solid var(--border); border-radius: 8px; width: 100%; box-sizing: border-box;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <img src="arbitrum.png" style="width:16px; height:16px; object-fit:contain;">
+              <span style="font-size: 11px; font-weight: 600;">Arbitrum</span>
+            </div>
+            <div id="deployerStatus_arbitrum" style="font-size: 10px; margin-left: 8px; margin-right: auto; text-align: left;"></div>
+            <button class="btn btn-primary" id="deployerBtn_arbitrum" onclick="runContractDeployment('arbitrum')" style="width: auto; padding: 4px 10px; font-size: 9px; border-radius: 6px; margin: 0; min-width: 70px;">Deploy</button>
+          </div>
+
+          <!-- Optimism -->
+          <div class="deploy-item" style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.02); padding: 8px; border: 1px solid var(--border); border-radius: 8px; width: 100%; box-sizing: border-box;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <img src="optimism.png" style="width:16px; height:16px; object-fit:contain;">
+              <span style="font-size: 11px; font-weight: 600;">Optimism</span>
+            </div>
+            <div id="deployerStatus_optimism" style="font-size: 10px; margin-left: 8px; margin-right: auto; text-align: left;"></div>
+            <button class="btn btn-primary" id="deployerBtn_optimism" onclick="runContractDeployment('optimism')" style="width: auto; padding: 4px 10px; font-size: 9px; border-radius: 6px; margin: 0; min-width: 70px;">Deploy</button>
+          </div>
+
+          <!-- BSC -->
+          <div class="deploy-item" style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.02); padding: 8px; border: 1px solid var(--border); border-radius: 8px; width: 100%; box-sizing: border-box;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <img src="bsc.png" style="width:16px; height:16px; object-fit:contain;">
+              <span style="font-size: 11px; font-weight: 600;">BSC</span>
+            </div>
+            <div id="deployerStatus_bsc" style="font-size: 10px; margin-left: 8px; margin-right: auto; text-align: left;"></div>
+            <button class="btn btn-primary" id="deployerBtn_bsc" onclick="runContractDeployment('bsc')" style="width: auto; padding: 4px 10px; font-size: 9px; border-radius: 6px; margin: 0; min-width: 70px;">Deploy</button>
+          </div>
+
+          <!-- Linea -->
+          <div class="deploy-item" style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.02); padding: 8px; border: 1px solid var(--border); border-radius: 8px; width: 100%; box-sizing: border-box;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <img src="linea.png" style="width:16px; height:16px; object-fit:contain;">
+              <span style="font-size: 11px; font-weight: 600;">Linea</span>
+            </div>
+            <div id="deployerStatus_linea" style="font-size: 10px; margin-left: 8px; margin-right: auto; text-align: left;"></div>
+            <button class="btn btn-primary" id="deployerBtn_linea" onclick="runContractDeployment('linea')" style="width: auto; padding: 4px 10px; font-size: 9px; border-radius: 6px; margin: 0; min-width: 70px;">Deploy</button>
+          </div>
+        </div>
+
+        <div id="deployerInfo" style="font-size: 9px; text-align: center; color: var(--green); min-height: 12px; margin-bottom: 12px; font-weight: 600; word-break: break-all; max-height: 80px; overflow-y: auto; line-height: 1.3;"></div>
+
+        <div class="btn-row" style="width: 100%;">
+          <button class="btn btn-outline" onclick="closeDeployerModal()" style="margin: 0; width: 100%;">Close Deployer</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast-container" id="toastContainer"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
