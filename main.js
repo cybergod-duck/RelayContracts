@@ -35,7 +35,7 @@ const NETWORKS = {
         name: 'Polygon',
         rpc: 'https://polygon.drpc.org',
         weth: '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619',
-        usdc: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
+        usdc: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
         relay: '',
         proxy: '',
         pool: '0x6e7a5FAFcec6BB1e78bAE2A1F0B612012BF14827',
@@ -69,7 +69,7 @@ const NETWORKS = {
         usdc: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
         relay: '',
         proxy: '',
-        pool: '',
+        pool: '0xd99c7F6C65857AC913a8f880A4cb84032AB2FC5b',
         router: '0x10ED43C718714eb63d5aA57B78B54704E256024E'  // PancakeSwap V2 Router
     },
     linea: {
@@ -90,7 +90,7 @@ const NETWORKS = {
 // Unified Across SpokePool addresses (verified June 2026)
 // =============================================================================
 const SPOKE_POOLS = {
-    base:     '0xa420b2d1c0841415A695b81E5B867BCD07Dff8C9',
+    base:     '0x09aea4b2242abc8bb4bb78d537a67a245a7bec64',
     polygon:  '0x9295ee1d8C5b022Be115A2AD3c30C72E34e7F096',
     arbitrum: '0xe35E9842A20b3205E324596763e4Ad8060c1BC27',
     optimism: '0xa420b2d1c0841415A695b81E5B867BCD07Dff8C9',
@@ -218,6 +218,8 @@ const STORE_PATH = path.join(app.getPath('userData'), 'wallet.json');
 })();
 
 let wallet = null;
+let primaryPrivateKey = null;
+let unlockedWallets = {};
 const providers = {};
 for (const key of Object.keys(NETWORKS)) {
     providers[key] = new ethers.providers.JsonRpcProvider(
@@ -390,22 +392,46 @@ function loadStore() {
     if (!fs.existsSync(STORE_PATH)) return null;
     const store = JSON.parse(fs.readFileSync(STORE_PATH, 'utf8'));
     if (store) {
-        if (store.polygonRelay) NETWORKS.polygon.relay = store.polygonRelay;
-        if (store.polygonProxy) NETWORKS.polygon.proxy = store.polygonProxy;
-        
-        if (store.arbitrumRelay) NETWORKS.arbitrum.relay = store.arbitrumRelay;
-        if (store.arbitrumProxy) NETWORKS.arbitrum.proxy = store.arbitrumProxy;
-        
-        if (store.optimismRelay) NETWORKS.optimism.relay = store.optimismRelay;
-        if (store.optimismProxy) NETWORKS.optimism.proxy = store.optimismProxy;
-        
-        if (store.bscRelay) NETWORKS.bsc.relay = store.bscRelay;
-        if (store.bscProxy) NETWORKS.bsc.proxy = store.bscProxy;
-        
-        if (store.lineaRelay) NETWORKS.linea.relay = store.lineaRelay;
-        if (store.lineaProxy) NETWORKS.linea.proxy = store.lineaProxy;
+        // Migrate legacy store.contracts format if needed
+        if (store.contracts) {
+            const keys = Object.keys(store.contracts);
+            const isLegacy = keys.some(k => ['base', 'polygon', 'arbitrum', 'optimism', 'bsc', 'linea'].includes(k));
+            if (isLegacy && store.address) {
+                const oldContracts = store.contracts;
+                store.contracts = {};
+                store.contracts[store.address.toLowerCase()] = oldContracts;
+                
+                try {
+                    fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2));
+                    console.log('[loadStore] Migrated store.contracts to nested address format');
+                } catch (e) {
+                    console.error('[loadStore] Migration failed to save:', e);
+                }
+            }
+        }
     }
     return store;
+}
+
+function setActiveWallet(address) {
+    const store = loadStore();
+    if (!store) return;
+    
+    const addrKey = address.toLowerCase();
+    const contracts = (store.contracts && store.contracts[addrKey]) || {};
+    
+    const networks = ['base', 'polygon', 'arbitrum', 'optimism', 'bsc', 'linea'];
+    for (const net of networks) {
+        const list = contracts[net] || [];
+        if (list.length > 0) {
+            const latest = list[list.length - 1];
+            NETWORKS[net].relay = latest.relay;
+            NETWORKS[net].proxy = latest.proxy;
+        } else {
+            NETWORKS[net].relay = '';
+            NETWORKS[net].proxy = '';
+        }
+    }
 }
 
 function saveStore(data) {
@@ -450,13 +476,50 @@ ipcMain.handle('wallet:load-bio', () => {
     return store.bioEnvelope;
 });
 
+function initializeUnlockedSession(decryptedPrivateKey) {
+    primaryPrivateKey = decryptedPrivateKey;
+    wallet = new ethers.Wallet(primaryPrivateKey, provider);
+    unlockedWallets = { [wallet.address.toLowerCase()]: primaryPrivateKey };
+    
+    // Load store and initialize store.accounts list
+    const store = loadStore() || {};
+    if (!store.accounts) store.accounts = [];
+    
+    const hasPrimary = store.accounts.some(a => a.isPrimary);
+    if (!hasPrimary) {
+        store.accounts.unshift({
+            address: wallet.address,
+            label: 'Primary Wallet',
+            isPrimary: true
+        });
+        saveStore(store);
+    }
+    
+    // Decrypt other sub-wallets
+    const masterKey = crypto.createHash('sha256').update(primaryPrivateKey).digest();
+    for (const acc of store.accounts) {
+        if (acc.isPrimary) continue;
+        if (acc.encryptedPrivateKey) {
+            try {
+                const decryptedKey = decryptGCM(masterKey, acc.encryptedPrivateKey);
+                unlockedWallets[acc.address.toLowerCase()] = decryptedKey;
+            } catch (e) {
+                console.error(`[session] Failed to decrypt wallet ${acc.address}:`, e.message);
+            }
+        }
+    }
+    
+    // Switch NETWORKS to point to active wallet's contracts
+    setActiveWallet(wallet.address);
+}
+
 // Unlock with password: scrypt derive → AES-GCM decrypt pwEnvelope
 ipcMain.handle('wallet:unlock', (_, password) => {
     try {
         const store = loadStore();
         if (!store) return { error: 'No wallet found' };
         const privateKey = decryptPwEnvelope(store.pwEnvelope, password);
-        wallet = new ethers.Wallet(privateKey, provider);
+        initializeUnlockedSession(privateKey);
         return { address: wallet.address };
     } catch (e) {
         return { error: 'Wrong password or corrupt wallet' };
@@ -466,7 +529,7 @@ ipcMain.handle('wallet:unlock', (_, password) => {
 // Unlock with biometric: renderer already decrypted bioEnvelope → sends privateKey
 ipcMain.handle('wallet:unlock-bio', (_, privateKey) => {
     try {
-        wallet = new ethers.Wallet(privateKey, provider);
+        initializeUnlockedSession(privateKey);
         const store = loadStore();
         if (store && !store.devKey) {
             store.devKey = safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(privateKey).toString('base64') : privateKey;
@@ -497,7 +560,12 @@ ipcMain.handle('wallet:balance', async () => {
 
 ipcMain.handle('wallet:address', () => wallet ? wallet.address : null);
 
-ipcMain.handle('wallet:lock', () => { wallet = null; return { ok: true }; });
+ipcMain.handle('wallet:lock', () => {
+    wallet = null;
+    primaryPrivateKey = null;
+    unlockedWallets = {};
+    return { ok: true };
+});
 
 // Set up PIN: encrypt private key with scrypt(PIN) → store in wallet.json
 ipcMain.handle('wallet:setPin', (_, pin) => {
@@ -506,14 +574,14 @@ ipcMain.handle('wallet:setPin', (_, pin) => {
         const store = loadStore();
         const salt = crypto.randomBytes(32);
         const key = crypto.scryptSync(pin, salt, 32);
-        store.pinEnvelope = { ...encryptGCM(key, wallet.privateKey), salt: salt.toString('hex') };
+        // Always encrypt the primary private key for PIN envelope
+        store.pinEnvelope = { ...encryptGCM(key, primaryPrivateKey), salt: salt.toString('hex') };
         saveStore(store);
         return { ok: true };
     } catch (e) { return { error: e.message }; }
 });
 
 // Unlock with PIN: scrypt(PIN) → AES-GCM decrypt
-
 ipcMain.handle('wallet:unlockWithPin', (_, pin) => {
     try {
         const store = loadStore();
@@ -521,7 +589,7 @@ ipcMain.handle('wallet:unlockWithPin', (_, pin) => {
         const salt = Buffer.from(store.pinEnvelope.salt, 'hex');
         const key = crypto.scryptSync(pin, salt, 32);
         const privateKey = decryptGCM(key, store.pinEnvelope);
-        wallet = new ethers.Wallet(privateKey, provider);
+        initializeUnlockedSession(privateKey);
         return { address: wallet.address };
     } catch (e) { return { error: 'Wrong PIN' }; }
 });
@@ -546,10 +614,220 @@ ipcMain.handle('wallet:devUnlock', async () => {
             privateKey = store.devKey;
         }
         
-        wallet = new ethers.Wallet(privateKey, provider);
+        initializeUnlockedSession(privateKey);
         return { address: wallet.address };
     } catch (e) {
         return { error: 'Failed to unlock with dev key: ' + e.message };
+    }
+});
+
+ipcMain.handle('wallet:getAccounts', () => {
+    try {
+        const store = loadStore() || {};
+        return store.accounts || [];
+    } catch (e) {
+        return [];
+    }
+});
+
+ipcMain.handle('wallet:addAccount', (_, label, importedPrivateKey) => {
+    if (!primaryPrivateKey) return { error: 'Wallet not unlocked' };
+    try {
+        let newW;
+        if (importedPrivateKey && importedPrivateKey.trim() !== '') {
+            let pk = importedPrivateKey.trim();
+            if (!pk.startsWith('0x')) pk = '0x' + pk;
+            newW = new ethers.Wallet(pk);
+        } else {
+            newW = ethers.Wallet.createRandom();
+        }
+        
+        const store = loadStore() || {};
+        if (!store.accounts) store.accounts = [];
+        
+        // Prevent duplicate addresses
+        const exists = store.accounts.some(a => a.address.toLowerCase() === newW.address.toLowerCase());
+        if (exists) {
+            return { error: 'Account already exists' };
+        }
+        
+        // Encrypt with primary key
+        const masterKey = crypto.createHash('sha256').update(primaryPrivateKey).digest();
+        const encKey = encryptGCM(masterKey, newW.privateKey);
+        
+        const newAcc = {
+            address: newW.address,
+            label: label || `Wallet ${store.accounts.length + 1}`,
+            encryptedPrivateKey: encKey
+        };
+        
+        store.accounts.push(newAcc);
+        saveStore(store);
+        
+        unlockedWallets[newW.address.toLowerCase()] = newW.privateKey;
+        
+        return store.accounts;
+    } catch (e) {
+        return { error: e.message };
+    }
+});
+
+ipcMain.handle('wallet:switchAccount', (_, address) => {
+    if (!primaryPrivateKey) return { error: 'Wallet not unlocked' };
+    try {
+        const addrKey = address.toLowerCase();
+        const pk = unlockedWallets[addrKey];
+        if (!pk) return { error: 'Wallet key not decrypted / found in session' };
+        
+        wallet = new ethers.Wallet(pk, provider);
+        setActiveWallet(wallet.address);
+        
+        return { address: wallet.address };
+    } catch (e) {
+        return { error: e.message };
+    }
+});
+
+ipcMain.handle('wallet:deleteAccount', (_, address) => {
+    if (!primaryPrivateKey) return { error: 'Wallet not unlocked' };
+    try {
+        const store = loadStore() || {};
+        if (!store.accounts) store.accounts = [];
+        
+        const idx = store.accounts.findIndex(a => a.address.toLowerCase() === address.toLowerCase());
+        if (idx === -1) return { error: 'Account not found' };
+        if (store.accounts[idx].isPrimary) return { error: 'Cannot delete primary wallet' };
+        
+        store.accounts.splice(idx, 1);
+        saveStore(store);
+        
+        delete unlockedWallets[address.toLowerCase()];
+        
+        // If the deleted wallet was active, fall back to primary
+        if (wallet.address.toLowerCase() === address.toLowerCase()) {
+            const primaryAcc = store.accounts.find(a => a.isPrimary);
+            wallet = new ethers.Wallet(unlockedWallets[primaryAcc.address.toLowerCase()], provider);
+            setActiveWallet(wallet.address);
+        }
+        
+        return store.accounts;
+    } catch (e) {
+        return { error: e.message };
+    }
+});
+
+// =============================================================================
+// KEY EXPORT — Extract private key through multiple paths
+// =============================================================================
+
+// Path 1: Wallet is already unlocked in memory → return it directly
+ipcMain.handle('wallet:exportKey', () => {
+    if (!wallet) return { error: 'Wallet not unlocked — unlock first with password, PIN, or biometric' };
+    return {
+        address: wallet.address,
+        privateKey: wallet.privateKey
+    };
+});
+
+// Path 2: Decrypt pwEnvelope with user's password (works even if wallet is locked)
+ipcMain.handle('wallet:exportKeyWithPassword', (_, password) => {
+    try {
+        const store = loadStore();
+        if (!store) return { error: 'No wallet file found' };
+        if (!store.pwEnvelope) return { error: 'No password envelope in wallet — wallet may be corrupt' };
+        const privateKey = decryptPwEnvelope(store.pwEnvelope, password);
+        // Verify the key produces the expected address
+        const testWallet = new ethers.Wallet(privateKey);
+        return {
+            address: testWallet.address,
+            privateKey: privateKey
+        };
+    } catch (e) {
+        return { error: 'Decryption failed — wrong password or corrupt envelope: ' + e.message };
+    }
+});
+
+// Path 3: Decrypt DPAPI-protected devKey via Windows safeStorage
+// This only works on the machine that created the wallet
+ipcMain.handle('wallet:exportDevKey', () => {
+    try {
+        const store = loadStore();
+        if (!store) return { error: 'No wallet file found' };
+        if (!store.devKey) return { error: 'No devKey saved — wallet was never unlocked with biometric on this machine' };
+        
+        let privateKey;
+        if (safeStorage.isEncryptionAvailable()) {
+            try {
+                const buf = Buffer.from(store.devKey, 'base64');
+                privateKey = safeStorage.decryptString(buf);
+            } catch (e) {
+                // Fallback: devKey might be stored as plaintext (dev mode)
+                privateKey = store.devKey;
+            }
+        } else {
+            privateKey = store.devKey;
+        }
+        
+        const testWallet = new ethers.Wallet(privateKey);
+        return {
+            address: testWallet.address,
+            privateKey: privateKey
+        };
+    } catch (e) {
+        return { error: 'DPAPI decryption failed: ' + e.message };
+    }
+});
+
+// Path 4: Decrypt PIN envelope
+ipcMain.handle('wallet:exportKeyWithPin', (_, pin) => {
+    try {
+        const store = loadStore();
+        if (!store || !store.pinEnvelope) return { error: 'No PIN envelope found' };
+        const salt = Buffer.from(store.pinEnvelope.salt, 'hex');
+        const key = crypto.scryptSync(pin, salt, 32);
+        const privateKey = decryptGCM(key, store.pinEnvelope);
+        const testWallet = new ethers.Wallet(privateKey);
+        return {
+            address: testWallet.address,
+            privateKey: privateKey
+        };
+    } catch (e) {
+        return { error: 'PIN decryption failed — wrong PIN: ' + e.message };
+    }
+});
+
+// Path 5: Dump all available info about the wallet for backup
+ipcMain.handle('wallet:exportAll', () => {
+    try {
+        const store = loadStore();
+        if (!store) return { error: 'No wallet file found' };
+        
+        const result = {
+            address: store.address,
+            hasPassword: !!store.pwEnvelope,
+            hasBiometric: !!store.bioEnvelope,
+            hasPin: !!store.pinEnvelope,
+            hasDevKey: !!store.devKey,
+            storePath: STORE_PATH,
+            privateKey: null
+        };
+        
+        // If wallet is unlocked in memory, include the key
+        if (wallet) {
+            result.privateKey = wallet.privateKey;
+        }
+        
+        // Try DPAPI devKey
+        if (!result.privateKey && store.devKey && safeStorage.isEncryptionAvailable()) {
+            try {
+                const buf = Buffer.from(store.devKey, 'base64');
+                result.privateKey = safeStorage.decryptString(buf);
+            } catch (e) { /* DPAPI failed */ }
+        }
+        
+        return result;
+    } catch (e) {
+        return { error: e.message };
     }
 });
 
@@ -649,6 +927,95 @@ ipcMain.handle('wallet:lineaAddresses', () => {
         relay: NETWORKS.linea.relay || '',
         proxy: NETWORKS.linea.proxy || ''
     };
+});
+
+ipcMain.handle('wallet:getAddressBook', () => {
+    try {
+        const store = loadStore();
+        return (store && store.addressBook) ? store.addressBook : {};
+    } catch (e) {
+        return {};
+    }
+});
+
+ipcMain.handle('wallet:saveAddress', (_, label, address) => {
+    try {
+        const store = loadStore() || {};
+        if (!store.addressBook) store.addressBook = {};
+        store.addressBook[address] = label;
+        saveStore(store);
+        return { ok: true };
+    } catch (e) {
+        return { error: e.message };
+    }
+});
+
+ipcMain.handle('wallet:deleteAddress', (_, address) => {
+    try {
+        const store = loadStore() || {};
+        if (store.addressBook && store.addressBook[address]) {
+            delete store.addressBook[address];
+            saveStore(store);
+        }
+        return { ok: true };
+    } catch (e) {
+        return { error: e.message };
+    }
+});
+
+ipcMain.handle('wallet:getContractsList', () => {
+    if (!wallet) return {};
+    try {
+        const store = loadStore();
+        if (!store) return {};
+        
+        let changed = false;
+        if (!store.contracts) {
+            store.contracts = {};
+            changed = true;
+        }
+        
+        const addrKey = wallet.address.toLowerCase();
+        if (!store.contracts[addrKey]) {
+            store.contracts[addrKey] = {};
+            changed = true;
+        }
+        
+        const activeContracts = store.contracts[addrKey];
+        const networks = ['base', 'polygon', 'arbitrum', 'optimism', 'bsc', 'linea'];
+        for (const net of networks) {
+            if (!activeContracts[net] || activeContracts[net].length === 0) {
+                const relayKey = net + 'Relay';
+                const proxyKey = net + 'Proxy';
+                let relayAddr = '';
+                let proxyAddr = '';
+                if (wallet.address.toLowerCase() === store.address.toLowerCase() && store[relayKey]) {
+                    relayAddr = store[relayKey];
+                    proxyAddr = store[proxyKey] || '';
+                } else if (NETWORKS[net] && NETWORKS[net].relay) {
+                    relayAddr = NETWORKS[net].relay;
+                    proxyAddr = NETWORKS[net].proxy || '';
+                }
+                if (relayAddr) {
+                    activeContracts[net] = [{
+                        relay: relayAddr,
+                        proxy: proxyAddr,
+                        timestamp: Date.now()
+                    }];
+                    changed = true;
+                }
+            }
+        }
+        
+        if (changed) {
+            saveStore(store);
+        }
+        
+        return activeContracts;
+    } catch (e) {
+        console.error('Error in getContractsList:', e);
+        return {};
+    }
 });
 
 ipcMain.handle('wallet:txHistory', async () => {
@@ -1103,45 +1470,49 @@ ipcMain.handle('relay:sweepToUsdc', async (_, networkKey = 'base') => {
         let wethBal = await wethC.balanceOf(wallet.address);
         const minGas = MIN_GAS[networkKey] || ethers.utils.parseEther('0.001');
 
-        // ── Polygon special path (QuickSwap V2 + POL native) ────────────────
+        // ── Polygon special path (Uniswap V3 + POL native) ──────────────────
         if (networkKey === 'polygon') {
             const overrides = await getPolygonGasOverrides(prov);
-            const routerContract = new ethers.Contract(net.router, [
-                'function swapExactTokensForTokens(uint256,uint256,address[],address,uint256) returns (uint256[])',
-                'function swapExactETHForTokens(uint256,address[],address,uint256) payable returns (uint256[])'
-            ], signer);
             let swapCount = 0, lastHash = '', sweptWeth = '0', sweptPol = '0';
+            const wpolAddr = '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270';
 
+            // 1. Swap WETH (Wrapped Ether on Polygon) to USDC
             if (wethBal.gt(0)) {
-                step = 'poly.approve';
-                const approveTx = await wethC.approve(net.router, wethBal, { gasLimit: 60000, ...overrides });
-                await approveTx.wait();
                 step = 'poly.swap.weth';
-                const deadline = Math.floor(Date.now() / 1000) + 300;
-                const swapTx = await routerContract.swapExactTokensForTokens(
-                    wethBal, 0, [net.weth, net.usdc], wallet.address, deadline,
-                    { gasLimit: 250000, ...overrides }
-                );
-                await swapTx.wait();
-                lastHash = swapTx.hash;
-                sweptWeth = ethers.utils.formatEther(wethBal);
-                swapCount++;
+                const wethContract = new ethers.Contract(net.weth, WETH_ABI, signer);
+                const appTx = await wethContract.approve(net.router, wethBal, { gasLimit: 100000, ...overrides });
+                await appTx.wait();
+                
+                const result = await swapV3ExactInput(signer, net.router, net.weth, net.usdc, wethBal, overrides);
+                if (result) {
+                    lastHash = result.hash;
+                    sweptWeth = ethers.utils.formatEther(wethBal);
+                    swapCount++;
+                }
             }
 
+            // 2. Swap POL (native) to USDC
             const gasBuffer = ethers.utils.parseEther("2.0");
             if (ethBal.gt(gasBuffer)) {
                 const swapAmount = ethBal.sub(gasBuffer);
-                const wpolAddr = '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270';
                 step = 'poly.swap.pol';
-                const deadline = Math.floor(Date.now() / 1000) + 300;
-                const swapTx = await routerContract.swapExactETHForTokens(
-                    0, [wpolAddr, net.usdc], wallet.address, deadline,
-                    { value: swapAmount, gasLimit: 250000, ...overrides }
-                );
-                await swapTx.wait();
-                lastHash = swapTx.hash;
-                sweptPol = ethers.utils.formatEther(swapAmount);
-                swapCount++;
+                
+                // Wrap POL to WPOL first
+                const wpolC = new ethers.Contract(wpolAddr, WETH_ABI, signer);
+                const depTx = await wpolC.deposit({ value: swapAmount, gasLimit: 80000, ...overrides });
+                await depTx.wait();
+                
+                // Approve WPOL to router
+                const appTx = await wpolC.approve(net.router, swapAmount, { gasLimit: 100000, ...overrides });
+                await appTx.wait();
+                
+                // Swap WPOL to USDC
+                const result = await swapV3ExactInput(signer, net.router, wpolAddr, net.usdc, swapAmount, overrides);
+                if (result) {
+                    lastHash = result.hash;
+                    sweptPol = ethers.utils.formatEther(swapAmount);
+                    swapCount++;
+                }
             }
 
             if (swapCount > 0) {
@@ -1153,11 +1524,8 @@ ipcMain.handle('relay:sweepToUsdc', async (_, networkKey = 'base') => {
             return { status: 'skipped', reason: 'No WETH or extra POL (above 2.0 POL gas buffer) on Polygon' };
         }
 
-        // ── Gas-starved chains: try unwrap for gas first, then bridge as fallback ─
-        // If ETH < minGas and we have WETH, unwrap a tiny bit for gas
+        // ── Gas-starved chains: try unwrap for gas first ──
         if (ethBal.lt(minGas) && wethBal.gt(0) && networkKey !== 'base') {
-            // On L2s, unwrap costs almost nothing (~30k gas at <1 gwei)
-            // Try unwrapping enough WETH for gas before resorting to bridge
             const unwrapGasNeeded = minGas.mul(4); // enough for unwrap + approve + swap + buffer
             const unwrapAmt = unwrapGasNeeded.sub(ethBal);
             const toUnwrap = unwrapAmt.gt(wethBal) ? wethBal : unwrapAmt;
@@ -1167,102 +1535,42 @@ ipcMain.handle('relay:sweepToUsdc', async (_, networkKey = 'base') => {
                 console.log(networkKey, 'rescuing gas: unwrapping', ethers.utils.formatEther(toUnwrap), 'WETH for gas');
                 const unwrapTx = await wethC.withdraw(toUnwrap, { gasLimit: 60000 });
                 await unwrapTx.wait();
-                // Re-read balances — we now have gas!
                 ethBal = await prov.getBalance(wallet.address);
                 wethBal = await wethC.balanceOf(wallet.address);
-                console.log(networkKey, 'after rescue: ETH=', ethers.utils.formatEther(ethBal), 'WETH=', ethers.utils.formatEther(wethBal));
-                // Fall through to normal swap path below
             } catch (unwrapErr) {
                 console.log(networkKey, 'unwrap rescue failed:', unwrapErr.reason || unwrapErr.message);
-                // Fall back to bridge path
-                const spokeAddr = SPOKE_POOLS[networkKey];
-                if (!spokeAddr) return { status: 'gas_needed', reason: 'No SpokePool for ' + networkKey + ' — cannot bridge' };
-
-                const bridgeMinGas = ethers.utils.parseEther('0.00005');
-                if (ethBal.lt(bridgeMinGas)) {
-                    return { status: 'gas_needed', reason: 'Not enough gas on ' + net.name + ' (' + ethers.utils.formatEther(ethBal) + ' ETH). Send ~0.001 ETH.' };
-                }
-
-                step = 'bridge.fallback';
-                const BASE_WETH = '0x4200000000000000000000000000000000000006';
-                const result = await acrossDepositWithQuote(signer, networkKey, 'base', net.weth, BASE_WETH, wethBal);
-                return { status: 'success', hash: result.hash, amount: ethers.utils.formatEther(wethBal) + ' WETH bridged', network: net.name };
-            } // end catch (unwrapErr)
-        } // end gas-starved check
+                const symbol = networkKey === 'bsc' ? 'BNB' : 'ETH';
+                return { status: 'gas_needed', reason: 'Not enough gas on ' + net.name + ' (' + parseFloat(ethers.utils.formatEther(ethBal)).toFixed(6) + ' ' + symbol + '). Send ~0.002 ' + symbol + ' to continue.' };
+            }
+        }
 
         // ── No gas, no WETH → nothing to do ─────────────────────────────────
         if (ethBal.lt(minGas) && wethBal.eq(0)) {
             return { status: 'skipped', reason: 'No ETH or WETH to sweep on ' + net.name };
         }
 
-        // ── CRITICAL: If we have WETH but not enough ETH for gas, UNWRAP some ─
-        // This breaks the death spiral: instead of wrapping more ETH (which
-        // leaves no gas), we unwrap a tiny bit of WETH to get gas for the swap.
-        const gasNeeded = minGas.mul(3); // enough for approve + swap + buffer
-        // BSC uses legacy gas (no EIP-1559) — fetch real gas price
+        // ── Wrap/Unwrap top-ups ─────────────────────────────────────────────
+        const gasNeeded = minGas.mul(3);
         let bscGas = {};
         if (networkKey === 'bsc') {
             const gp = await prov.getGasPrice();
             bscGas = { gasPrice: gp };
-            console.log('BSC gasPrice:', ethers.utils.formatUnits(gp, 'gwei'), 'gwei');
         }
         if (wethBal.gt(0) && ethBal.lt(gasNeeded)) {
-            const unwrapAmount = gasNeeded.sub(ethBal); // just enough to top up
-            // Don't unwrap more than we have
+            const unwrapAmount = gasNeeded.sub(ethBal);
             const toUnwrap = unwrapAmount.gt(wethBal) ? wethBal : unwrapAmount;
             step = 'unwrap.gas';
-            console.log(networkKey, 'unwrapping', ethers.utils.formatEther(toUnwrap), 'for gas');
             const unwrapTx = await wethC.withdraw(toUnwrap, { gasLimit: 60000, ...bscGas });
             await unwrapTx.wait();
-        }
-        // If WETH is 0, wrap ETH (but only if plenty of ETH available)
-        else if (wethBal.eq(0) && ethBal.gt(gasNeeded.mul(2))) {
+        } else if (wethBal.eq(0) && ethBal.gt(gasNeeded.mul(2))) {
             const wrapAmount = ethBal.sub(gasNeeded);
             step = 'wrap';
             const wrapTx = await wethC.deposit({ value: wrapAmount, gasLimit: 60000 });
             await wrapTx.wait();
         }
 
-        // Re-read balances after potential wrap/unwrap
         step = 'check.weth';
         let finalWeth = await wethC.balanceOf(wallet.address);
-
-        // ── Non-Base: If USDC is stuck (from previous local swap), bridge it directly to Base ──
-        if (networkKey !== 'base' && finalWeth.eq(0)) {
-            const usdcC = new ethers.Contract(net.usdc, ['function balanceOf(address) view returns (uint256)', 'function approve(address,uint256) returns (bool)', 'function decimals() view returns (uint8)'], signer);
-            const stuckUsdc = await usdcC.balanceOf(wallet.address);
-            if (stuckUsdc.gt(0)) {
-                const spokeAddr = SPOKE_POOLS[networkKey];
-                if (!spokeAddr) {
-                    console.log(networkKey, 'has stuck USDC but no SpokePool');
-                } else if (networkKey === 'bsc') {
-                    // BSC USDC is 18 decimals (Binance-pegged) — swap back to WBNB first, then bridge
-                    step = 'bsc.usdc2wbnb.approve';
-                    console.log('bsc: recovering', ethers.utils.formatEther(stuckUsdc), 'USDC → WBNB');
-                    const appTx = await usdcC.approve(net.router, stuckUsdc, { gasLimit: 60000, ...bscGas });
-                    await appTx.wait();
-                    step = 'bsc.usdc2wbnb.swap';
-                    const r = new ethers.Contract(net.router, [
-                        'function swapExactTokensForTokens(uint256,uint256,address[],address,uint256) returns (uint256[])'
-                    ], signer);
-                    const dl = Math.floor(Date.now() / 1000) + 300;
-                    const swTx = await r.swapExactTokensForTokens(
-                        stuckUsdc, 0, [net.usdc, net.weth], wallet.address, dl,
-                        { gasLimit: 300000, ...bscGas }
-                    );
-                    await swTx.wait();
-                    console.log('bsc: USDC → WBNB recovery done');
-                    finalWeth = await wethC.balanceOf(wallet.address);
-                } else {
-                    // OP, Linea, Arbitrum: bridge USDC directly to Base USDC via Across API
-                    const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
-                    step = 'usdc.bridge';
-                    console.log(networkKey, 'bridging stuck', ethers.utils.formatUnits(stuckUsdc, 6), 'USDC to Base');
-                    const result = await acrossDepositWithQuote(signer, networkKey, 'base', net.usdc, BASE_USDC, stuckUsdc);
-                    return { status: 'success', hash: result.hash, amount: ethers.utils.formatUnits(stuckUsdc, 6) + ' USDC bridging to Base', network: net.name };
-                }
-            }
-        }
 
         if (finalWeth.eq(0)) {
             return { status: 'skipped', reason: 'No WETH to swap on ' + net.name + ' (ETH too low to wrap safely)' };
@@ -1270,14 +1578,12 @@ ipcMain.handle('relay:sweepToUsdc', async (_, networkKey = 'base') => {
 
         // ── SWAP: Route through the correct DEX ─────────────────────────────
         if (networkKey === 'base') {
-            // Direct Uniswap V3 swap on Base — raw calldata to avoid any ABI issues
             const BASE_SWAP_ROUTER = '0x2626664c2603336E57B271c5C0b26F421741e481';
             step = 'base.approve';
             const approveTx = await wethC.approve(BASE_SWAP_ROUTER, finalWeth, { gasLimit: 60000 });
             await approveTx.wait();
 
             step = 'base.swap';
-            // Manually encode exactInputSingle calldata — exactly as eth_call simulation
             const swapIface = new ethers.utils.Interface([
                 'function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external payable returns (uint256)'
             ]);
@@ -1291,12 +1597,10 @@ ipcMain.handle('relay:sweepToUsdc', async (_, networkKey = 'base') => {
                 sqrtPriceLimitX96: 0
             }]);
 
-            // Simulate first to confirm it will work
             const simResult = await prov.call({ from: wallet.address, to: BASE_SWAP_ROUTER, data: calldata });
             const usdcOut = ethers.utils.defaultAbiCoder.decode(['uint256'], simResult)[0];
             console.log('Base swap simulation OK. Expected USDC:', ethers.utils.formatUnits(usdcOut, 6));
 
-            // Send raw transaction — identical to simulation
             const tx = await signer.sendTransaction({
                 to: BASE_SWAP_ROUTER,
                 data: calldata,
@@ -1304,19 +1608,39 @@ ipcMain.handle('relay:sweepToUsdc', async (_, networkKey = 'base') => {
             });
             const receipt = await tx.wait();
             if (receipt.status === 0) return { error: '[base.swap] Transaction reverted on-chain' };
-            return { status: 'success', hash: tx.hash, amount: ethers.utils.formatEther(finalWeth), network: net.name };
+            return { status: 'success', hash: tx.hash, amount: ethers.utils.formatEther(finalWeth) + ' ETH', network: net.name };
+
+        } else if (networkKey === 'bsc') {
+            step = 'bsc.swap';
+            const routerContract = new ethers.Contract(net.router, [
+                'function swapExactTokensForTokens(uint256,uint256,address[],address,uint256) returns (uint256[])'
+            ], signer);
+            
+            console.log('bsc sweep: swapping', ethers.utils.formatEther(finalWeth), 'WBNB to USDC');
+            const approveTx = await wethC.approve(net.router, finalWeth, { gasLimit: 60000, ...bscGas });
+            await approveTx.wait();
+            
+            const deadline = Math.floor(Date.now() / 1000) + 600;
+            const swapTx = await routerContract.swapExactTokensForTokens(
+                finalWeth, 0, [net.weth, net.usdc], wallet.address, deadline,
+                { gasLimit: 250000, ...bscGas }
+            );
+            await swapTx.wait();
+            console.log('bsc sweep: swap complete, tx =', swapTx.hash);
+            return { status: 'success', hash: swapTx.hash, amount: ethers.utils.formatEther(finalWeth) + ' BNB', network: net.name };
 
         } else {
-            // ALL non-Base chains: bridge WETH to Base via Across
-            // WETH arrives as WETH on Base, then Base sweep converts to USDC
-            const spokeAddr = SPOKE_POOLS[networkKey];
-            if (!spokeAddr) return { error: 'No SpokePool configured for ' + net.name };
+            // Swap Router02 chains (Optimism, Linea, Arbitrum) using Uniswap V3 SwapRouter02
+            step = 'l2.swap.approve';
+            const approveTx = await wethC.approve(net.router, finalWeth, { gasLimit: 100000, ...bscGas });
+            await approveTx.wait();
 
-            step = 'bridge';
-            const BASE_WETH = '0x4200000000000000000000000000000000000006';
-            console.log(networkKey, 'bridging', ethers.utils.formatEther(finalWeth), 'WETH to Base via Across API');
-            const result = await acrossDepositWithQuote(signer, networkKey, 'base', net.weth, BASE_WETH, finalWeth, bscGas);
-            return { status: 'success', hash: result.hash, amount: ethers.utils.formatEther(finalWeth) + ' WETH bridging to Base', network: net.name };
+            step = 'l2.swap.execute';
+            const result = await swapV3ExactInput(signer, net.router, net.weth, net.usdc, finalWeth, bscGas);
+            if (!result) {
+                return { error: 'WETH→USDC swap failed on ' + net.name + ' — no liquid pool found' };
+            }
+            return { status: 'success', hash: result.hash, amount: ethers.utils.formatEther(finalWeth) + ' ETH', network: net.name };
         }
     } catch (e) {
         let msg = e.reason || e.message || 'Sweep failed';
@@ -1487,6 +1811,242 @@ ipcMain.handle('relay:customBridge', async (_, fromKey, toKey, tokenKey, amountS
         let msg = e.reason || e.message || 'Bridge failed';
         if (e.error && e.error.message) msg = e.error.message;
         return { error: msg };
+    }
+});
+
+
+// =============================================================================
+// CONTRACT COMMAND CENTER ADMIN & DEPLOYMENT HANDLERS
+// =============================================================================
+const DEPLOY_PARAMS = {
+    polygon: {
+        weth: '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270', // WMATIC/WPOL
+        factory: '0x5757371414417b1542a454cb1a38df10f502b396' // QuickSwap Factory
+    },
+    bsc: {
+        weth: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c', // WBNB
+        factory: '0xca143ce32fe78f1f7019d7d551a6402fc5350c73' // PancakeSwap Factory
+    },
+    arbitrum: {
+        weth: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1', // WETH
+        factory: '0xc35dad65031f236065a041d28d81353c12218e4e' // SushiSwap Factory
+    },
+    optimism: {
+        weth: '0x4200000000000000000000000000000000000006', // WETH
+        factory: '0xc35dad65031f236065a041d28d81353c12218e4e' // SushiSwap Factory fallback
+    },
+    linea: {
+        weth: '0xe5D7C2a44FfDDf6b295A15c148167daaAf5Cf34f', // WETH
+        factory: '0x01b084e5ad6c24fcb2d285aee3a9ccb4a3af825a' // LineaSwap Factory
+    },
+    base: {
+        weth: '0x4200000000000000000000000000000000000006', // WETH
+        factory: '0x8909Dc15e40173Ff4699343b6eB8132c65e18eC6' // Uniswap V2 Factory Base
+    }
+};
+
+const BASERELAY_ABI_ADMIN = [
+    'function owner() view returns (address)',
+    'function TREASURY() view returns (address)',
+    'function updateTreasury(address newTreasury) external',
+    'function withdrawETH() external',
+    'function withdrawToken(address token) external',
+    'function transferOwnership(address newOwner) external',
+    'function getContractBalance() view returns (uint256)'
+];
+
+async function handleDeployNetwork(networkKey) {
+    if (!wallet) return { error: 'Wallet not unlocked' };
+    try {
+        const net = NETWORKS[networkKey];
+        const prov = providers[networkKey];
+        const signer = wallet.connect(prov);
+        
+        const params = DEPLOY_PARAMS[networkKey];
+        if (!params) return { error: 'Unsupported network for automated deployment' };
+        
+        let artifactsDir = path.join(__dirname, 'artifacts');
+        if (!fs.existsSync(artifactsDir)) {
+            artifactsDir = path.join(__dirname, 'hardhat-env', 'artifacts');
+        }
+        
+        const relayArtifactPath = path.join(artifactsDir, 'contracts', 'BaseRelayV4.sol', 'BaseRelayV4.json');
+        const relayArtifact = JSON.parse(fs.readFileSync(relayArtifactPath, 'utf8'));
+        
+        const proxyArtifactPath = path.join(artifactsDir, 'contracts', 'BotCompatibilityProxy.sol', 'BotCompatibilityProxy.json');
+        const proxyArtifact = JSON.parse(fs.readFileSync(proxyArtifactPath, 'utf8'));
+        
+        // Dynamic gas overrides for Polygon
+        const overrides = networkKey === 'polygon' ? await getPolygonGasOverrides(prov) : {};
+        // Fetch legacy gas price for BSC
+        if (networkKey === 'bsc') {
+            const gp = await prov.getGasPrice();
+            overrides.gasPrice = gp;
+        }
+
+        console.log(`[IPC deployNetwork] Deploying BaseRelayV4 to ${net.name}...`);
+        const relayFactory = new ethers.ContractFactory(relayArtifact.abi, relayArtifact.bytecode, signer);
+        const relayContract = await relayFactory.deploy(COLLECTION_ADDRESS, { ...overrides });
+        await relayContract.deployed();
+        const relayAddress = relayContract.address;
+        console.log(`[IPC deployNetwork] BaseRelayV4 deployed to ${relayAddress} on ${net.name}`);
+
+        console.log(`[IPC deployNetwork] Deploying BotCompatibilityProxy to ${net.name}...`);
+        const proxyFactory = new ethers.ContractFactory(proxyArtifact.abi, proxyArtifact.bytecode, signer);
+        const proxyContract = await proxyFactory.deploy(relayAddress, params.weth, params.factory, { ...overrides });
+        await proxyContract.deployed();
+        const proxyAddress = proxyContract.address;
+        console.log(`[IPC deployNetwork] BotCompatibilityProxy deployed to ${proxyAddress} on ${net.name}`);
+
+        // Save to store
+        const store = loadStore() || {};
+        if (!store.contracts) store.contracts = {};
+        const addrKey = wallet.address.toLowerCase();
+        if (!store.contracts[addrKey]) store.contracts[addrKey] = {};
+        if (!store.contracts[addrKey][networkKey]) store.contracts[addrKey][networkKey] = [];
+        
+        store.contracts[addrKey][networkKey].push({
+            relay: relayAddress,
+            proxy: proxyAddress,
+            timestamp: Date.now()
+        });
+        
+        // Update flat keys for legacy compatibility on primary account only
+        if (wallet.address.toLowerCase() === store.address.toLowerCase()) {
+            store[networkKey + 'Relay'] = relayAddress;
+            store[networkKey + 'Proxy'] = proxyAddress;
+        }
+        
+        NETWORKS[networkKey].relay = relayAddress;
+        NETWORKS[networkKey].proxy = proxyAddress;
+        
+        saveStore(store);
+
+        return { relay: relayAddress, proxy: proxyAddress };
+    } catch (e) {
+        console.error(`Failed deploying on ${networkKey}:`, e);
+        return { error: e.reason || e.message || 'Deployment execution failed' };
+    }
+}
+
+ipcMain.handle('wallet:deployNetwork', async (_, networkKey) => {
+    return handleDeployNetwork(networkKey);
+});
+
+ipcMain.handle('wallet:deployPolygon', async () => {
+    return handleDeployNetwork('polygon');
+});
+
+ipcMain.handle('wallet:getContractState', async (_, networkKey, contractAddress) => {
+    if (!wallet) return { error: 'Wallet not unlocked' };
+    try {
+        const prov = providers[networkKey];
+        const contract = new ethers.Contract(contractAddress, BASERELAY_ABI_ADMIN, prov);
+        const owner = await contract.owner();
+        const treasury = await contract.TREASURY();
+        
+        const nativeBalance = await prov.getBalance(contractAddress);
+        const net = NETWORKS[networkKey];
+        let usdcBalance = '0';
+        if (net && net.usdc) {
+            const decimals = networkKey === 'bsc' ? 18 : 6;
+            const usdcContract = new ethers.Contract(net.usdc, ['function balanceOf(address) view returns (uint256)'], prov);
+            const bal = await usdcContract.balanceOf(contractAddress);
+            usdcBalance = ethers.utils.formatUnits(bal, decimals);
+        }
+        
+        return {
+            owner,
+            treasury,
+            nativeBalance: ethers.utils.formatEther(nativeBalance),
+            usdcBalance
+        };
+    } catch (e) {
+        return { error: e.message };
+    }
+});
+
+ipcMain.handle('wallet:updateTreasury', async (_, networkKey, contractAddress, newTreasury) => {
+    if (!wallet) return { error: 'Wallet not unlocked' };
+    try {
+        const prov = providers[networkKey];
+        const signer = wallet.connect(prov);
+        const contract = new ethers.Contract(contractAddress, BASERELAY_ABI_ADMIN, signer);
+        
+        const overrides = networkKey === 'polygon' ? await getPolygonGasOverrides(prov) : {};
+        if (networkKey === 'bsc') {
+            const gp = await prov.getGasPrice();
+            overrides.gasPrice = gp;
+        }
+        
+        const tx = await contract.updateTreasury(newTreasury, { gasLimit: 80000, ...overrides });
+        await tx.wait();
+        return { hash: tx.hash };
+    } catch (e) {
+        return { error: e.reason || e.message };
+    }
+});
+
+ipcMain.handle('wallet:transferOwnership', async (_, networkKey, contractAddress, newOwner) => {
+    if (!wallet) return { error: 'Wallet not unlocked' };
+    try {
+        const prov = providers[networkKey];
+        const signer = wallet.connect(prov);
+        const contract = new ethers.Contract(contractAddress, BASERELAY_ABI_ADMIN, signer);
+        
+        const overrides = networkKey === 'polygon' ? await getPolygonGasOverrides(prov) : {};
+        if (networkKey === 'bsc') {
+            const gp = await prov.getGasPrice();
+            overrides.gasPrice = gp;
+        }
+        
+        const tx = await contract.transferOwnership(newOwner, { gasLimit: 80000, ...overrides });
+        await tx.wait();
+        return { hash: tx.hash };
+    } catch (e) {
+        return { error: e.reason || e.message };
+    }
+});
+
+ipcMain.handle('wallet:withdrawETH', async (_, networkKey, contractAddress) => {
+    if (!wallet) return { error: 'Wallet not unlocked' };
+    try {
+        const prov = providers[networkKey];
+        const signer = wallet.connect(prov);
+        const contract = new ethers.Contract(contractAddress, BASERELAY_ABI_ADMIN, signer);
+        
+        const overrides = networkKey === 'polygon' ? await getPolygonGasOverrides(prov) : {};
+        if (networkKey === 'bsc') {
+            const gp = await prov.getGasPrice();
+            overrides.gasPrice = gp;
+        }
+        
+        const tx = await contract.withdrawETH({ gasLimit: 80000, ...overrides });
+        await tx.wait();
+        return { hash: tx.hash };
+    } catch (e) {
+        return { error: e.reason || e.message };
+    }
+});
+
+ipcMain.handle('wallet:withdrawToken', async (_, networkKey, contractAddress, tokenAddress) => {
+    if (!wallet) return { error: 'Wallet not unlocked' };
+    try {
+        const prov = providers[networkKey];
+        const signer = wallet.connect(prov);
+        const contract = new ethers.Contract(contractAddress, BASERELAY_ABI_ADMIN, signer);
+        
+        const overrides = networkKey === 'polygon' ? await getPolygonGasOverrides(prov) : {};
+        if (networkKey === 'bsc') {
+            const gp = await prov.getGasPrice();
+            overrides.gasPrice = gp;
+        }
+        
+        const tx = await contract.withdrawToken(tokenAddress, { gasLimit: 80000, ...overrides });
+        await tx.wait();
+        return { hash: tx.hash };
+    } catch (e) {
+        return { error: e.reason || e.message };
     }
 });
 

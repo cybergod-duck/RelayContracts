@@ -1024,7 +1024,14 @@
 
     <div id="unlocked" class="hidden">
       <div class="header-bar">
-        <span class="title"><span class="dot"></span> Relay Wallet</span>
+        <span class="title" style="display:flex; align-items:center; gap:12px;">
+          <span style="display:flex; align-items:center; gap:6px;"><span class="dot"></span> Relay Contracts</span>
+          <div style="display:flex; align-items:center; gap:6px; margin-left: 10px;">
+            <select id="accountSelector" onchange="switchAccount(this.value)" style="background:rgba(0,0,0,0.45); color:var(--text); border:1px solid var(--border); border-radius:8px; font-size:11px; padding:4px 24px 4px 10px; outline:none; font-family:inherit; cursor:pointer; min-width:180px; max-width:240px; height:28px; appearance:none; -webkit-appearance:none; background-image:url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%252300d2ff%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E'); background-repeat:no-repeat; background-position:right%208px%20top%2050%25; background-size:8px%20auto; text-overflow:ellipsis;"></select>
+            <button onclick="openAddAccountModal()" title="Add Wallet Account" style="background:rgba(0,210,255,0.08); border:1px solid rgba(0,210,255,0.3); color:var(--cyan); border-radius:8px; height:28px; width:28px; display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:14px; font-weight:bold; transition:all 0.2s; box-sizing:border-box; padding:0;" onmouseover="this.style.background='rgba(0,210,255,0.18)'" onmouseout="this.style.background='rgba(0,210,255,0.08)'">+</button>
+            <button id="btnDeleteActiveAcc" onclick="deleteActiveAccount()" title="Delete Active Sub-Wallet" style="background:rgba(255,50,50,0.08); border:1px solid rgba(255,50,50,0.3); color:var(--red); border-radius:8px; height:28px; width:28px; display:none; align-items:center; justify-content:center; cursor:pointer; font-size:12px; transition:all 0.2s; box-sizing:border-box; padding:0;" onmouseover="this.style.background='rgba(255,50,50,0.18)'" onmouseout="this.style.background='rgba(255,50,50,0.08)'">🗑️</button>
+          </div>
+        </span>
         <div class="actions">
           <button class="header-btn" onclick="lock()" title="Lock Wallet" style="padding:2px;border:1px solid rgba(0,210,255,0.4)!important;background:rgba(0,210,255,0.06)!important;border-radius:6px;"><img src="ICON.png" style="width:16px;height:16px;object-fit:contain;display:block;border-radius:3px;"></button>
           <button class="header-btn danger" onclick="window.wallet.closeApp()" title="Close">✕</button>
@@ -1116,10 +1123,11 @@
         <!-- Right Column (Content Panel) -->
         <div class="dashboard-right">
           <div class="tabs" style="align-items: center; display: flex;">
-            <button class="tab active" onclick="switchTab('networks')">🌐 Networks</button>
-            <button class="tab" onclick="switchTab('relay')">⬡ Relay</button>
-            <button onclick="openDeployerModal()" style="margin-left:auto;font-size:10px;color:var(--cyan);border:1px solid rgba(0,210,255,0.25);padding:4px 8px;border-radius:6px;background:rgba(0,210,255,0.06);cursor:pointer;font-family:inherit;font-weight:600;transition:all 0.2s;">🚀 Deploy Contracts</button>
+            <button class="tab active" id="tabBtnNetworks" onclick="switchTab('networks')">🌐 Networks</button>
+            <button class="tab" id="tabBtnRelay" onclick="switchTab('relay')">⬡ Relay</button>
+            <button class="tab" id="tabBtnContracts" onclick="switchTab('contracts')">⚙️ Command Center</button>
           </div>
+
 
           <div class="tab-panels">
             <div id="tabNetworks" class="tab-content" style="display:flex;flex-direction:column;gap:10px;">
@@ -1396,6 +1404,87 @@
                   style="flex:1;color:var(--red);border-color:rgba(255,68,102,0.15);padding:6px;font-size:10px;">⚠️ Export Key</button>
               </div>
             </div>
+
+            <!-- Command Center Tab Panel -->
+            <div id="tabContracts" class="tab-content hidden" style="display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;gap:12px;padding: 10px 14px 14px;">
+              <!-- Header -->
+              <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom: 2px;">
+                <div>
+                  <h4 style="margin:0; font-size:13px; color:var(--text); font-weight:700;">Relay Contract Swarm</h4>
+                  <div style="font-size:9px; color:var(--dim);">Multi-chain deployment & administration hub</div>
+                </div>
+                <div style="text-align:right;">
+                  <span id="ccStatsNative" style="font-size:10px; color:var(--text); font-family:var(--mono); font-weight:700;">--</span>
+                  <div style="font-size:8px; color:var(--dim); text-transform:uppercase;">Native Accrued</div>
+                </div>
+              </div>
+
+              <!-- Network Contracts Swarm Columns -->
+              <div id="ccSwarmGrid" style="display:flex; gap:10px; overflow-x:auto; width:100%; height:auto; padding-bottom:6px; flex:1; min-height:0;">
+                <!-- Deployed contracts will be rendered here dynamically -->
+              </div>
+
+              <!-- Selected Contract Admin Drawer -->
+              <div id="ccAdminDrawer" class="hidden" style="background:rgba(255,255,255,0.02); border:1px solid var(--border); border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:8px;">
+                <div style="display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:6px; margin-bottom:4px;">
+                  <div style="display:flex; align-items:center; gap:6px;">
+                    <img id="ccSelectedLogo" src="" style="width:14px; height:14px; object-fit:contain;">
+                    <span id="ccSelectedNetwork" style="font-size:11px; font-weight:700; color:var(--text);">--</span>
+                  </div>
+                  <span id="ccSelectedType" style="font-size:9px; font-weight:600; text-transform:uppercase; color:var(--cyan); background:rgba(0,210,255,0.08); padding:2px 6px; border-radius:4px; border:1px solid rgba(0,210,255,0.15);">--</span>
+                </div>
+
+                <div style="font-family:var(--mono); font-size:10px; display:flex; flex-direction:column; gap:3px; color:var(--text2); background:rgba(0,0,0,0.2); padding:6px 8px; border-radius:6px; border:1px solid rgba(255,255,255,0.02);">
+                  <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <span>Address:</span>
+                    <div style="display:flex; align-items:center; gap:6px;">
+                      <span id="ccSelectedAddress" class="clickable-addr" style="color:var(--text); cursor:pointer;" title="Click to copy">0x...</span>
+                      <span id="ccBtnOpenExplorer" style="cursor:pointer; color:var(--cyan); font-size:10px;" title="Open in Block Explorer">🔗</span>
+                    </div>
+                  </div>
+                  <div id="ccSelectedOwnerRow" style="display:flex; justify-content:space-between;"><span>Owner:</span><span id="ccSelectedOwner" style="color:var(--dim);">0x...</span></div>
+                  <div id="ccSelectedTreasuryRow" style="display:flex; justify-content:space-between;"><span>Treasury:</span><span id="ccSelectedTreasury" style="color:var(--dim);">0x...</span></div>
+                </div>
+
+                <!-- Admin Action Inputs -->
+                <div id="ccAdminActions" style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">
+                  <!-- Set Treasury -->
+                  <div id="ccActionTreasury" style="display:flex; gap:6px; align-items:center;">
+                    <input type="text" id="ccInputTreasury" placeholder="New Treasury address" style="margin-bottom:0; padding:6px 10px; font-size:11px; flex:1;">
+                    <button class="btn btn-primary" onclick="execUpdateTreasury()" style="width:auto; height:32px; padding:0 10px; font-size:10px; margin:0;">Set Treasury</button>
+                  </div>
+
+                  <!-- Transfer Ownership -->
+                  <div id="ccActionOwner" style="display:flex; gap:6px; align-items:center;">
+                    <input type="text" id="ccInputOwner" placeholder="New Owner address" style="margin-bottom:0; padding:6px 10px; font-size:11px; flex:1;">
+                    <button class="btn btn-outline" onclick="execTransferOwnership()" style="width:auto; height:32px; padding:0 10px; font-size:10px; margin:0; border-color:var(--border);">Transfer Owner</button>
+                  </div>
+
+                  <!-- Withdraw Funds Row -->
+                  <div style="display:flex; gap:6px; margin-top:4px;">
+                    <button id="ccBtnWithdrawNative" class="btn btn-outline" onclick="execWithdrawNative()" style="flex:1; margin:0; height:32px; padding:0; font-size:10px; color:var(--green); border-color:rgba(0,255,136,0.15);">Withdraw Native</button>
+                    <button id="ccBtnWithdrawUSDC" class="btn btn-outline" onclick="execWithdrawUSDC()" style="flex:1; margin:0; height:32px; padding:0; font-size:10px; color:var(--cyan); border-color:rgba(0,210,255,0.15);">Withdraw USDC</button>
+                  </div>
+
+                  <!-- Custom Token Withdraw (Expander) -->
+                  <div style="display:flex; gap:6px; align-items:center; margin-top:2px;">
+                    <input type="text" id="ccInputCustomToken" placeholder="Custom Token address (0x...)" style="margin-bottom:0; padding:6px 10px; font-size:11px; flex:1;">
+                    <button class="btn btn-outline" onclick="execWithdrawCustomToken()" style="width:auto; height:32px; padding:0 10px; font-size:10px; margin:0; border-color:var(--border);">Withdraw Token</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Terminal log console -->
+              <div style="display:flex; flex-direction:column; background:rgba(0,0,0,0.4); border:1px solid var(--border); border-radius:10px; padding:8px 10px; flex:1; min-height:110px; max-height:160px; overflow:hidden;">
+                <div style="font-size:8px; font-weight:700; color:var(--dim); text-transform:uppercase; margin-bottom:4px; letter-spacing:0.5px; display:flex; justify-content:space-between;">
+                  <span>Command Center Console</span>
+                  <span onclick="clearCommandCenterConsole()" style="cursor:pointer; color:var(--cyan); text-transform:none;">Clear</span>
+                </div>
+                <div id="ccConsoleLog" style="flex:1; font-family:var(--mono); font-size:9px; color:var(--text2); overflow-y:auto; line-height:1.4; word-break:break-all;">
+                  <div>[SYSTEM] Command Center initialized. Ready for swarm deployment.</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1413,6 +1502,29 @@
           <button class="btn btn-outline" onclick="closePinModal()">Cancel</button>
         </div>
         <div id="pinError" style="font-size:11px;color:var(--red);text-align:center;margin-top:8px;min-height:16px;">
+        </div>
+      </div>
+    </div>
+
+    <!-- Add Account Modal -->
+    <div id="addAccountModal" class="modal hidden">
+      <div class="modal-card" style="width: 380px;">
+        <h3 style="margin-bottom: 8px;">Add New Wallet Account</h3>
+        <div style="display:flex; flex-direction:column; gap:12px; text-align:left; margin-bottom:16px; width:100%; box-sizing:border-box;">
+          <div>
+            <label style="font-size: 11px; color: var(--dim); display: block; margin-bottom: 4px;">Account Label</label>
+            <input type="text" id="addAccLabel" placeholder="e.g. Wallet 2" style="width:100%; box-sizing:border-box; margin:0;">
+          </div>
+          <div>
+            <label style="font-size: 11px; color: var(--dim); display: block; margin-bottom: 4px;">Private Key (optional)</label>
+            <input type="password" id="addAccPrivateKey" placeholder="Leave blank to generate new random key" style="width:100%; box-sizing:border-box; margin:0;">
+          </div>
+        </div>
+        <div class="btn-row" style="display:flex; gap:10px; width:100%;">
+          <button class="btn btn-primary" onclick="submitAddAccount()" style="flex:1; margin:0;">Add Account</button>
+          <button class="btn btn-outline" onclick="closeAddAccountModal()" style="flex:1; margin:0; border-color:var(--border);">Cancel</button>
+        </div>
+        <div id="addAccError" style="font-size:11px;color:var(--red);text-align:center;margin-top:10px;min-height:16px;">
         </div>
       </div>
     </div>

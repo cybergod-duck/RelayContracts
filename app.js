@@ -55,17 +55,25 @@ function switchTab(tab) {
     document.querySelectorAll('.tab').forEach(t => {
         if (tab === 'networks' && t.textContent.includes('Networks')) t.classList.add('active');
         if (tab === 'relay' && t.textContent.includes('Relay')) t.classList.add('active');
+        if (tab === 'contracts' && t.textContent.includes('Command Center')) t.classList.add('active');
     });
     
     const tabNet = document.getElementById('tabNetworks');
     if (tabNet) tabNet.classList.toggle('hidden', tab !== 'networks');
     document.getElementById('tabRelay').classList.toggle('hidden', tab !== 'relay');
     
+    const tabContracts = document.getElementById('tabContracts');
+    if (tabContracts) tabContracts.classList.toggle('hidden', tab !== 'contracts');
+    
     if (tab === 'relay') {
         refreshRelay();
         startLiveFeed();
     } else {
         stopLiveFeed();
+    }
+    
+    if (tab === 'contracts') {
+        refreshCommandCenter();
     }
 }
 
@@ -164,12 +172,15 @@ async function passwordUnlock() {
 async function showUnlocked(address) {
     lockedEl.classList.add('hidden');
     unlockedEl.classList.remove('hidden');
-    window.wallet.resizeWindow(880, 730);
+    window.wallet.resizeWindow(1280, 800);
     document.getElementById('addr').textContent = address;
     document.getElementById('sendTo').value = '';
     document.getElementById('sendAmount').value = '';
     document.getElementById('sendResult').innerHTML = '';
     document.getElementById('sweepResult').innerHTML = '';
+
+    // Load multi-wallet accounts dropdown
+    await loadAccounts();
 
     // QR
     await updateQrCode();
@@ -820,7 +831,7 @@ async function sweepAllNetworks() {
         resultEl.innerHTML = '<span class="result-ok">✅ Sweep complete — ' + totalUsdc.toFixed(2) + ' USDC bridging to Base</span>';
         toast('Sweep complete! ' + totalUsdc.toFixed(2) + ' USDC bridging to Base.', 'success');
     } else if (gasNeededCount > 0) {
-        resultEl.innerHTML = '<span style="color:#ffaa00;">' + gasNeededCount + ' chain' + (gasNeededCount > 1 ? 's' : '') + ' need gas — send ~0.001 ETH to continue</span>';
+        resultEl.innerHTML = '<span style="color:#ffaa00;">' + gasNeededCount + ' chain' + (gasNeededCount > 1 ? 's' : '') + ' need gas — send native gas (BNB / POL / ETH) to continue</span>';
         toast(gasNeededCount + ' chain(s) need gas to sweep.', 'info');
     } else {
         resultEl.innerHTML = '<span style="color:var(--dim);">All chains empty — nothing to sweep</span>';
@@ -1572,5 +1583,850 @@ async function runContractDeployment(net) {
         btnEl.textContent = 'Deploy';
         btnEl.style.background = 'linear-gradient(135deg, var(--cyan), #0088cc)';
         btnEl.style.color = '#06060d';
+    }
+}
+
+// =============================================================================
+// CONTRACT COMMAND CENTER
+// =============================================================================
+let ccSelectedNet = '';
+let ccSelectedType = '';
+let ccSelectedAddress = '';
+
+const CC_LOGOS = {
+    base: 'Base.png',
+    polygon: 'polygon.png',
+    arbitrum: 'arbitrum.png',
+    optimism: 'optimism.png',
+    bsc: 'BSC.png',
+    linea: 'linea.png'
+};
+
+const CC_USDC = {
+    base: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    polygon: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
+    arbitrum: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+    optimism: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
+    bsc: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
+    linea: '0x176211869cA2b568f2A7D4EE941E073a821EE1ff'
+};
+
+const CC_EXPLORERS = {
+    base: 'https://basescan.org/address/',
+    polygon: 'https://polygonscan.com/address/',
+    arbitrum: 'https://arbiscan.io/address/',
+    optimism: 'https://optimistic.etherscan.io/address/',
+    bsc: 'https://bscscan.com/address/',
+    linea: 'https://lineascan.build/address/'
+};
+
+const CC_NATIVE_SYMBOLS = {
+    base: 'ETH',
+    polygon: 'POL',
+    arbitrum: 'ETH',
+    optimism: 'ETH',
+    bsc: 'BNB',
+    linea: 'ETH'
+};
+
+function ccLog(msg, type = 'info') {
+    const consoleLog = document.getElementById('ccConsoleLog');
+    if (!consoleLog) return;
+    const time = new Date().toLocaleTimeString();
+    const colors = {
+        info: 'var(--text2)',
+        success: 'var(--green)',
+        error: 'var(--red)',
+        warn: 'var(--amber)'
+    };
+    const color = colors[type] || 'var(--text2)';
+    const el = document.createElement('div');
+    el.style.color = color;
+    el.innerHTML = `[${time}] ${msg}`;
+    consoleLog.appendChild(el);
+    consoleLog.scrollTop = consoleLog.scrollHeight;
+}
+
+function clearCommandCenterConsole() {
+    const consoleLog = document.getElementById('ccConsoleLog');
+    if (consoleLog) consoleLog.innerHTML = '<div>[SYSTEM] Console cleared.</div>';
+}
+
+async function refreshCommandCenter() {
+    const grid = document.getElementById('ccSwarmGrid');
+    if (!grid) return;
+    
+    grid.innerHTML = '<div style="text-align:center; padding:20px; color:var(--cyan); font-size: 11px; width: 100%;">Scanning multichain contract swarm...</div>';
+    
+    const networks = ['base', 'polygon', 'arbitrum', 'optimism', 'bsc', 'linea'];
+    let totalNativeUsd = 0;
+    
+    ccLog('Initiating multi-chain state scan...');
+    
+    let contractsList = {};
+    try {
+        contractsList = await window.wallet.getContractsList();
+    } catch (e) {
+        ccLog(`Error getting contracts list: ${e.message}`, 'error');
+    }
+    
+    // Clear grid
+    grid.innerHTML = '';
+    
+    for (const net of networks) {
+        const displayName = net.charAt(0).toUpperCase() + net.slice(1);
+        const logo = CC_LOGOS[net] || 'Base.png';
+        const pairs = contractsList[net] || [];
+        
+        // Create column container
+        const col = document.createElement('div');
+        col.className = 'cc-network-column';
+        col.style.cssText = `
+            flex: 0 0 200px;
+            min-width: 200px;
+            max-width: 200px;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            height: 380px;
+            padding: 10px;
+            box-sizing: border-box;
+            gap: 10px;
+        `;
+        
+        // Column Header
+        const colHeader = document.createElement('div');
+        colHeader.style.cssText = `
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        `;
+        
+        const colTitleSection = document.createElement('div');
+        colTitleSection.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        `;
+        
+        const colLogo = document.createElement('img');
+        colLogo.src = logo;
+        colLogo.style.cssText = `
+            width: 14px;
+            height: 14px;
+            object-fit: contain;
+        `;
+        
+        const colName = document.createElement('span');
+        colName.style.cssText = `
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text);
+        `;
+        colName.textContent = displayName;
+        
+        colTitleSection.appendChild(colLogo);
+        colTitleSection.appendChild(colName);
+        colHeader.appendChild(colTitleSection);
+        
+        // Column Actions (Explorer + Deploy)
+        const colActions = document.createElement('div');
+        colActions.style.cssText = `
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        `;
+        
+        // Explorer
+        const colExp = document.createElement('span');
+        colExp.style.cssText = `
+            font-size: 10px;
+            color: var(--dim);
+            cursor: pointer;
+            transition: color 0.2s;
+        `;
+        colExp.textContent = '🔗';
+        colExp.title = `Explore ${displayName} contracts`;
+        colExp.onmouseover = () => colExp.style.color = 'var(--cyan)';
+        colExp.onmouseout = () => colExp.style.color = 'var(--dim)';
+        colExp.onclick = () => {
+            if (pairs.length > 0) {
+                require('electron').shell.openExternal(CC_EXPLORERS[net] + pairs[pairs.length - 1].relay);
+            } else {
+                require('electron').shell.openExternal(CC_EXPLORERS[net]);
+            }
+        };
+        colActions.appendChild(colExp);
+        
+        // Deploy (+)
+        const colDeploy = document.createElement('button');
+        colDeploy.style.cssText = `
+            background: transparent;
+            border: 1px solid rgba(0, 210, 255, 0.25);
+            color: var(--cyan);
+            border-radius: 4px;
+            width: 18px;
+            height: 18px;
+            padding: 0;
+            font-size: 10px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            line-height: 1;
+        `;
+        colDeploy.textContent = '+';
+        colDeploy.title = `Deploy new contract pair on ${displayName}`;
+        colDeploy.onmouseover = () => {
+            colDeploy.style.background = 'rgba(0, 210, 255, 0.1)';
+            colDeploy.style.borderColor = 'var(--cyan)';
+        };
+        colDeploy.onmouseout = () => {
+            colDeploy.style.background = 'transparent';
+            colDeploy.style.borderColor = 'rgba(0, 210, 255, 0.25)';
+        };
+        
+        colDeploy.onclick = async (e) => {
+            e.stopPropagation();
+            colDeploy.disabled = true;
+            colDeploy.textContent = '⌛';
+            ccLog(`Starting automated swarm deployment on ${net.toUpperCase()}...`);
+            try {
+                const res = await window.wallet.deployNetwork(net);
+                if (res.error) {
+                    ccLog(`Swarm deployment failed on ${net.toUpperCase()}: ${res.error}`, 'error');
+                    toast(`Deployment on ${displayName} failed: ${res.error}`, 'error');
+                } else {
+                    ccLog(`Successfully deployed swarm on ${net.toUpperCase()}! Relay: ${res.relay}, Proxy: ${res.proxy}`, 'success');
+                    toast(`Successfully deployed contracts on ${displayName}!`, 'success');
+                    await refreshCommandCenter();
+                }
+            } catch (err) {
+                ccLog(`Execution error on ${net.toUpperCase()}: ${err.message}`, 'error');
+                toast(`Execution error: ${err.message}`, 'error');
+            }
+            colDeploy.disabled = false;
+            colDeploy.textContent = '+';
+        };
+        colActions.appendChild(colDeploy);
+        colHeader.appendChild(colActions);
+        col.appendChild(colHeader);
+        
+        // Cards container
+        const cardsContainer = document.createElement('div');
+        cardsContainer.style.cssText = `
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            padding-right: 2px;
+        `;
+        col.appendChild(cardsContainer);
+        
+        if (pairs.length === 0) {
+            const noDeploy = document.createElement('div');
+            noDeploy.style.cssText = `
+                color: var(--dim);
+                font-size: 9px;
+                text-align: center;
+                padding: 16px 8px;
+                border: 1px dashed rgba(255, 255, 255, 0.05);
+                border-radius: 8px;
+                margin-top: 4px;
+                background: rgba(255, 255, 255, 0.005);
+            `;
+            noDeploy.textContent = 'No active nodes';
+            cardsContainer.appendChild(noDeploy);
+        } else {
+            // Render contract pair cards chronologically
+            pairs.forEach((pair, idx) => {
+                const card = document.createElement('div');
+                card.style.cssText = `
+                    background: rgba(255, 255, 255, 0.01);
+                    border: 1px solid rgba(255, 255, 255, 0.04);
+                    border-radius: 8px;
+                    padding: 6px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 3px;
+                    transition: all 0.2s ease-in-out;
+                `;
+                
+                // Node label and timestamp
+                const nodeTitle = document.createElement('div');
+                nodeTitle.style.cssText = `
+                    font-size: 9px;
+                    font-weight: 700;
+                    color: var(--text2);
+                    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+                    padding-bottom: 2px;
+                    margin-bottom: 2px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                `;
+                const dateStr = pair.timestamp ? new Date(pair.timestamp).toLocaleDateString(undefined, {month: 'numeric', day: 'numeric'}) : 'Legacy';
+                nodeTitle.innerHTML = `<span>Node #${idx + 1}</span><span style="font-size: 7px; color: var(--dim);">${dateStr}</span>`;
+                card.appendChild(nodeTitle);
+                
+                // Relay row
+                const relayEl = document.createElement('div');
+                relayEl.style.cssText = `
+                    display: flex;
+                    flex-direction: column;
+                    padding: 3px 5px;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    transition: background 0.2s;
+                `;
+                relayEl.onmouseover = () => relayEl.style.background = 'rgba(0, 210, 255, 0.05)';
+                relayEl.onmouseout = () => {
+                    if (!relayEl.classList.contains('cc-selected-row')) {
+                        relayEl.style.background = 'transparent';
+                    }
+                };
+                
+                const rShort = pair.relay.slice(0, 6) + '...' + pair.relay.slice(-4);
+                const rLabelRow = document.createElement('div');
+                rLabelRow.style.cssText = `
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                `;
+                rLabelRow.innerHTML = `
+                    <span style="font-size:8px; color: var(--text2);">⬡ Relay</span>
+                    <div style="display:flex; align-items:center; gap:4px;">
+                        <span style="font-size:8px; font-family:var(--mono); color:var(--cyan); font-weight:600;">${rShort}</span>
+                        <span class="cc-explorer-link" style="font-size:8px; cursor:pointer; color:var(--dim);" title="Open in Explorer">🔗</span>
+                    </div>
+                `;
+                const rExpLink = rLabelRow.querySelector('.cc-explorer-link');
+                if (rExpLink) {
+                    rExpLink.onclick = (e) => {
+                        e.stopPropagation();
+                        require('electron').shell.openExternal(CC_EXPLORERS[net] + pair.relay);
+                    };
+                    rExpLink.onmouseover = (e) => { e.stopPropagation(); rExpLink.style.color = 'var(--cyan)'; };
+                    rExpLink.onmouseout = (e) => { e.stopPropagation(); rExpLink.style.color = 'var(--dim)'; };
+                }
+                relayEl.appendChild(rLabelRow);
+                
+                const rBalRow = document.createElement('div');
+                rBalRow.style.cssText = `
+                    display: flex;
+                    justify-content: flex-end;
+                    font-size: 8px;
+                    color: var(--dim);
+                    margin-top: 1px;
+                `;
+                rBalRow.textContent = 'Loading...';
+                relayEl.appendChild(rBalRow);
+                card.appendChild(relayEl);
+                
+                // Proxy row (if exists)
+                let proxyEl = null;
+                let pBalRow = null;
+                if (pair.proxy) {
+                    proxyEl = document.createElement('div');
+                    proxyEl.style.cssText = `
+                        display: flex;
+                        flex-direction: column;
+                        padding: 3px 5px;
+                        border-radius: 4px;
+                        cursor: pointer;
+                        transition: background 0.2s;
+                        margin-top: 1px;
+                    `;
+                    proxyEl.onmouseover = () => proxyEl.style.background = 'rgba(0, 255, 136, 0.05)';
+                    proxyEl.onmouseout = () => {
+                        if (!proxyEl.classList.contains('cc-selected-row')) {
+                            proxyEl.style.background = 'transparent';
+                        }
+                    };
+                    
+                    const pShort = pair.proxy.slice(0, 6) + '...' + pair.proxy.slice(-4);
+                    const pLabelRow = document.createElement('div');
+                    pLabelRow.style.cssText = `
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                    `;
+                    pLabelRow.innerHTML = `
+                        <span style="font-size:8px; color: var(--text2);">⚡ Proxy</span>
+                        <div style="display:flex; align-items:center; gap:4px;">
+                            <span style="font-size:8px; font-family:var(--mono); color:var(--green); font-weight:600;">${pShort}</span>
+                            <span class="cc-explorer-link" style="font-size:8px; cursor:pointer; color:var(--dim);" title="Open in Explorer">🔗</span>
+                        </div>
+                    `;
+                    const pExpLink = pLabelRow.querySelector('.cc-explorer-link');
+                    if (pExpLink) {
+                        pExpLink.onclick = (e) => {
+                            e.stopPropagation();
+                            require('electron').shell.openExternal(CC_EXPLORERS[net] + pair.proxy);
+                        };
+                        pExpLink.onmouseover = (e) => { e.stopPropagation(); pExpLink.style.color = 'var(--green)'; };
+                        pExpLink.onmouseout = (e) => { e.stopPropagation(); pExpLink.style.color = 'var(--dim)'; };
+                    }
+                    proxyEl.appendChild(pLabelRow);
+                    
+                    pBalRow = document.createElement('div');
+                    pBalRow.style.cssText = `
+                        display: flex;
+                        justify-content: flex-end;
+                        font-size: 8px;
+                        color: var(--dim);
+                        margin-top: 1px;
+                    `;
+                    pBalRow.textContent = 'Loading...';
+                    proxyEl.appendChild(pBalRow);
+                    card.appendChild(proxyEl);
+                } else {
+                    const noProxy = document.createElement('div');
+                    noProxy.style.cssText = `
+                        font-size: 8px;
+                        color: var(--dim);
+                        padding: 2px 4px;
+                        font-style: italic;
+                    `;
+                    noProxy.textContent = '⚡ Proxy: None';
+                    card.appendChild(noProxy);
+                }
+                
+                cardsContainer.appendChild(card);
+                
+                // Fetch states asynchronously
+                let relayState = null;
+                let proxyState = null;
+                
+                const updateBalancesUI = () => {
+                    const nativeSymbol = CC_NATIVE_SYMBOLS[net];
+                    if (relayState) {
+                        if (relayState.error) {
+                            rBalRow.textContent = 'Error';
+                            rBalRow.style.color = 'var(--red)';
+                        } else {
+                            const nativeVal = parseFloat(relayState.nativeBalance).toFixed(4);
+                            const usdcVal = parseFloat(relayState.usdcBalance).toFixed(2);
+                            rBalRow.textContent = `${nativeVal} ${nativeSymbol} | $${usdcVal}`;
+                        }
+                    }
+                    if (pBalRow && proxyState) {
+                        if (proxyState.error) {
+                            pBalRow.textContent = 'Error';
+                            pBalRow.style.color = 'var(--red)';
+                        } else {
+                            const nativeVal = parseFloat(proxyState.nativeBalance).toFixed(4);
+                            pBalRow.textContent = `${nativeVal} ${nativeSymbol}`;
+                        }
+                    }
+                };
+                
+                // Select bindings
+                relayEl.onclick = (e) => {
+                    e.stopPropagation();
+                    document.querySelectorAll('.cc-selected-row').forEach(el => {
+                        el.style.background = 'transparent';
+                        el.classList.remove('cc-selected-row');
+                    });
+                    relayEl.style.background = 'rgba(0, 210, 255, 0.1)';
+                    relayEl.classList.add('cc-selected-row');
+                    selectContract(net, 'relay', pair.relay, relayState);
+                };
+                
+                if (proxyEl) {
+                    proxyEl.onclick = (e) => {
+                        e.stopPropagation();
+                        document.querySelectorAll('.cc-selected-row').forEach(el => {
+                            el.style.background = 'transparent';
+                            el.classList.remove('cc-selected-row');
+                        });
+                        proxyEl.style.background = 'rgba(0, 255, 136, 0.1)';
+                        proxyEl.classList.add('cc-selected-row');
+                        selectContract(net, 'proxy', pair.proxy, proxyState);
+                    };
+                }
+                
+                // Spawn background state load
+                (async () => {
+                    try {
+                        const rPromise = window.wallet.getContractState(net, pair.relay);
+                        const pPromise = pair.proxy ? window.wallet.getContractState(net, pair.proxy) : Promise.resolve(null);
+                        const [rRes, pRes] = await Promise.all([rPromise, pPromise]);
+                        
+                        relayState = rRes;
+                        proxyState = pRes;
+                        updateBalancesUI();
+                        
+                        if (relayState && !relayState.error) {
+                            const bal = parseFloat(relayState.nativeBalance) || 0;
+                            let price = ethPrice;
+                            if (net === 'polygon') price = polPrice;
+                            else if (net === 'bsc') price = bnbPrice;
+                            totalNativeUsd += (bal * price);
+                        }
+                        if (proxyState && !proxyState.error) {
+                            const bal = parseFloat(proxyState.nativeBalance) || 0;
+                            let price = ethPrice;
+                            if (net === 'polygon') price = polPrice;
+                            else if (net === 'bsc') price = bnbPrice;
+                            totalNativeUsd += (bal * price);
+                        }
+                        document.getElementById('ccStatsNative').textContent = `$${totalNativeUsd.toFixed(2)}`;
+                    } catch (err) {
+                        console.error('Failed fetching node state:', err);
+                    }
+                })();
+            });
+        }
+        
+        grid.appendChild(col);
+    }
+    
+    ccLog('Swarm scan completed.');
+}
+
+async function selectContract(networkKey, type, address, state) {
+    ccSelectedNet = networkKey;
+    ccSelectedType = type;
+    ccSelectedAddress = address;
+    
+    ccLog(`Selected ${networkKey.toUpperCase()} ${type.toUpperCase()} contract: ${address}`);
+    
+    const drawer = document.getElementById('ccAdminDrawer');
+    if (!drawer) return;
+    
+    drawer.classList.remove('hidden');
+    
+    document.getElementById('ccSelectedLogo').src = CC_LOGOS[networkKey] || 'Base.png';
+    document.getElementById('ccSelectedNetwork').textContent = networkKey.toUpperCase();
+    document.getElementById('ccSelectedType').textContent = type.toUpperCase();
+    
+    const addrEl = document.getElementById('ccSelectedAddress');
+    addrEl.textContent = address;
+    
+    // Copy on click
+    addrEl.onclick = (e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(address);
+        toast('Address copied to clipboard!', 'success');
+    };
+    
+    // Open explorer link on click of CC Explorer Button next to it
+    const btnOpenExp = document.getElementById('ccBtnOpenExplorer');
+    if (btnOpenExp) {
+        btnOpenExp.onclick = (e) => {
+            e.stopPropagation();
+            if (address && networkKey && CC_EXPLORERS[networkKey]) {
+                require('electron').shell.openExternal(CC_EXPLORERS[networkKey] + address);
+            }
+        };
+    }
+    
+    // Clear custom token input
+    document.getElementById('ccInputCustomToken').value = '';
+    document.getElementById('ccInputTreasury').value = '';
+    document.getElementById('ccInputOwner').value = '';
+    
+    // Display owner and treasury if they are Relay contracts
+    const ownerRow = document.getElementById('ccSelectedOwnerRow');
+    const treasuryRow = document.getElementById('ccSelectedTreasuryRow');
+    const actionTreasury = document.getElementById('ccActionTreasury');
+    const actionOwner = document.getElementById('ccActionOwner');
+    const btnWithdrawUSDC = document.getElementById('ccBtnWithdrawUSDC');
+    
+    if (type === 'relay') {
+        ownerRow.classList.remove('hidden');
+        treasuryRow.classList.remove('hidden');
+        actionTreasury.classList.remove('hidden');
+        actionOwner.classList.remove('hidden');
+        btnWithdrawUSDC.classList.remove('hidden');
+        
+        if (state && !state.error) {
+            document.getElementById('ccSelectedOwner').textContent = state.owner.slice(0, 8) + '...' + state.owner.slice(-6);
+            document.getElementById('ccSelectedOwner').title = state.owner;
+            document.getElementById('ccSelectedTreasury').textContent = state.treasury.slice(0, 8) + '...' + state.treasury.slice(-6);
+            document.getElementById('ccSelectedTreasury').title = state.treasury;
+        } else {
+            document.getElementById('ccSelectedOwner').textContent = 'Loading...';
+            document.getElementById('ccSelectedTreasury').textContent = 'Loading...';
+            // Fetch live state again just in case
+            try {
+                const liveState = await window.wallet.getContractState(networkKey, address);
+                if (liveState && !liveState.error) {
+                    document.getElementById('ccSelectedOwner').textContent = liveState.owner.slice(0, 8) + '...' + liveState.owner.slice(-6);
+                    document.getElementById('ccSelectedOwner').title = liveState.owner;
+                    document.getElementById('ccSelectedTreasury').textContent = liveState.treasury.slice(0, 8) + '...' + liveState.treasury.slice(-6);
+                    document.getElementById('ccSelectedTreasury').title = liveState.treasury;
+                }
+            } catch (err) {}
+        }
+    } else {
+        // Proxy contract
+        ownerRow.classList.add('hidden');
+        treasuryRow.classList.add('hidden');
+        actionTreasury.classList.add('hidden');
+        actionOwner.classList.add('hidden');
+        btnWithdrawUSDC.classList.add('hidden');
+    }
+}
+
+async function execUpdateTreasury() {
+    if (!ccSelectedNet || !ccSelectedAddress) return toast('Select a Relay contract first', 'error');
+    const newTreasury = document.getElementById('ccInputTreasury').value;
+    if (!newTreasury || !newTreasury.startsWith('0x') || newTreasury.length !== 42) {
+        return toast('Please enter a valid 0x address', 'error');
+    }
+    
+    ccLog(`Sending updateTreasury to ${ccSelectedNet.toUpperCase()}...`);
+    toast('Sending transaction... Please confirm PIN/password if requested.', 'info');
+    
+    try {
+        const res = await window.wallet.updateTreasury(ccSelectedNet, ccSelectedAddress, newTreasury);
+        if (res.error) {
+            ccLog(`updateTreasury failed: ${res.error}`, 'error');
+            toast(`Transaction failed: ${res.error}`, 'error');
+        } else {
+            ccLog(`Successfully updated treasury! Tx Hash: ${res.hash}`, 'success');
+            toast('Treasury updated successfully!', 'success');
+            document.getElementById('ccInputTreasury').value = '';
+            await refreshCommandCenter();
+        }
+    } catch (e) {
+        ccLog(`Error updating treasury: ${e.message}`, 'error');
+        toast(`Error: ${e.message}`, 'error');
+    }
+}
+
+async function execTransferOwnership() {
+    if (!ccSelectedNet || !ccSelectedAddress) return toast('Select a Relay contract first', 'error');
+    const newOwner = document.getElementById('ccInputOwner').value;
+    if (!newOwner || !newOwner.startsWith('0x') || newOwner.length !== 42) {
+        return toast('Please enter a valid 0x address', 'error');
+    }
+    
+    ccLog(`Sending transferOwnership to ${ccSelectedNet.toUpperCase()}...`);
+    toast('Sending transaction... Confirm key authorization.', 'info');
+    
+    try {
+        const res = await window.wallet.transferOwnership(ccSelectedNet, ccSelectedAddress, newOwner);
+        if (res.error) {
+            ccLog(`transferOwnership failed: ${res.error}`, 'error');
+            toast(`Transaction failed: ${res.error}`, 'error');
+        } else {
+            ccLog(`Successfully transferred ownership! Tx Hash: ${res.hash}`, 'success');
+            toast('Ownership transferred successfully!', 'success');
+            document.getElementById('ccInputOwner').value = '';
+            await refreshCommandCenter();
+        }
+    } catch (e) {
+        ccLog(`Error transferring ownership: ${e.message}`, 'error');
+        toast(`Error: ${e.message}`, 'error');
+    }
+}
+
+async function execWithdrawNative() {
+    if (!ccSelectedNet || !ccSelectedAddress) return toast('Select a contract first', 'error');
+    ccLog(`Sending withdrawETH to ${ccSelectedNet.toUpperCase()}...`);
+    toast('Sending transaction... Draining native balances.', 'info');
+    
+    try {
+        const res = await window.wallet.withdrawETH(ccSelectedNet, ccSelectedAddress);
+        if (res.error) {
+            ccLog(`withdrawETH failed: ${res.error}`, 'error');
+            toast(`Transaction failed: ${res.error}`, 'error');
+        } else {
+            ccLog(`Successfully withdrew native assets! Tx Hash: ${res.hash}`, 'success');
+            toast('Native assets withdrawn successfully!', 'success');
+            await refreshCommandCenter();
+        }
+    } catch (e) {
+        ccLog(`Error withdrawing native: ${e.message}`, 'error');
+        toast(`Error: ${e.message}`, 'error');
+    }
+}
+
+async function execWithdrawUSDC() {
+    if (!ccSelectedNet || !ccSelectedAddress) return toast('Select a contract first', 'error');
+    const usdcAddr = CC_USDC[ccSelectedNet];
+    if (!usdcAddr) return toast(`No USDC address configured for ${ccSelectedNet.toUpperCase()}`, 'error');
+    
+    ccLog(`Sending withdrawToken (USDC) to ${ccSelectedNet.toUpperCase()}...`);
+    toast('Sending transaction... Draining USDC balances.', 'info');
+    
+    try {
+        const res = await window.wallet.withdrawToken(ccSelectedNet, ccSelectedAddress, usdcAddr);
+        if (res.error) {
+            ccLog(`withdrawUSDC failed: ${res.error}`, 'error');
+            toast(`Transaction failed: ${res.error}`, 'error');
+        } else {
+            ccLog(`Successfully withdrew USDC assets! Tx Hash: ${res.hash}`, 'success');
+            toast('USDC assets withdrawn successfully!', 'success');
+            await refreshCommandCenter();
+        }
+    } catch (e) {
+        ccLog(`Error withdrawing USDC: ${e.message}`, 'error');
+        toast(`Error: ${e.message}`, 'error');
+    }
+}
+
+async function execWithdrawCustomToken() {
+    if (!ccSelectedNet || !ccSelectedAddress) return toast('Select a contract first', 'error');
+    const tokenAddr = document.getElementById('ccInputCustomToken').value;
+    if (!tokenAddr || !tokenAddr.startsWith('0x') || tokenAddr.length !== 42) {
+        return toast('Please enter a valid ERC-20 token address', 'error');
+    }
+    
+    ccLog(`Sending withdrawToken (${tokenAddr}) to ${ccSelectedNet.toUpperCase()}...`);
+    toast('Sending transaction... Draining token balances.', 'info');
+    
+    try {
+        const res = await window.wallet.withdrawToken(ccSelectedNet, ccSelectedAddress, tokenAddr);
+        if (res.error) {
+            ccLog(`withdrawToken failed: ${res.error}`, 'error');
+            toast(`Transaction failed: ${res.error}`, 'error');
+        } else {
+            ccLog(`Successfully withdrew tokens! Tx Hash: ${res.hash}`, 'success');
+            toast('Tokens withdrawn successfully!', 'success');
+            document.getElementById('ccInputCustomToken').value = '';
+            await refreshCommandCenter();
+        }
+    } catch (e) {
+        ccLog(`Error withdrawing custom token: ${e.message}`, 'error');
+        toast(`Error: ${e.message}`, 'error');
+    }
+}
+
+// =============================================================================
+// MULTI-WALLET CONTROLLERS
+// =============================================================================
+async function loadAccounts() {
+    const selector = document.getElementById('accountSelector');
+    if (!selector) return;
+    
+    selector.innerHTML = '';
+    try {
+        const accounts = await window.wallet.getAccounts();
+        const activeAddr = await window.wallet.address();
+        
+        let activeIsSub = false;
+        accounts.forEach(acc => {
+            const opt = document.createElement('option');
+            opt.value = acc.address;
+            opt.textContent = `${acc.label} (${acc.address.substring(0, 6)}...${acc.address.substring(38)})`;
+            if (acc.address.toLowerCase() === activeAddr.toLowerCase()) {
+                opt.selected = true;
+                if (!acc.isPrimary) activeIsSub = true;
+            }
+            selector.appendChild(opt);
+        });
+        
+        // Show delete button only for sub-wallets
+        const btnDelete = document.getElementById('btnDeleteActiveAcc');
+        if (btnDelete) {
+            btnDelete.style.display = activeIsSub ? 'flex' : 'none';
+        }
+    } catch (e) {
+        console.error('Error loading accounts:', e);
+    }
+}
+
+async function switchAccount(address) {
+    try {
+        const res = await window.wallet.switchAccount(address);
+        if (res.error) {
+            toast(`Failed to switch account: ${res.error}`, 'error');
+            return;
+        }
+        
+        document.getElementById('addr').textContent = res.address;
+        
+        // Refresh UI
+        await loadAccounts();
+        await updateQrCode();
+        await refreshBalance();
+        await refreshTxHistory();
+        
+        // If we are on the Command Center tab, refresh the swarm cards
+        if (currentTab === 'contracts') {
+            await refreshCommandCenter();
+        }
+        
+        toast(`Switched to account ${res.address.substring(0, 6)}...${res.address.substring(38)}`, 'success');
+    } catch (e) {
+        console.error('Error switching account:', e);
+        toast(`Error switching account: ${e.message}`, 'error');
+    }
+}
+
+function openAddAccountModal() {
+    document.getElementById('addAccLabel').value = '';
+    document.getElementById('addAccPrivateKey').value = '';
+    document.getElementById('addAccError').textContent = '';
+    document.getElementById('addAccountModal').classList.remove('hidden');
+}
+
+function closeAddAccountModal() {
+    document.getElementById('addAccountModal').classList.add('hidden');
+}
+
+async function submitAddAccount() {
+    const label = document.getElementById('addAccLabel').value.trim();
+    const pk = document.getElementById('addAccPrivateKey').value.trim();
+    const errorEl = document.getElementById('addAccError');
+    
+    errorEl.textContent = '';
+    try {
+        const res = await window.wallet.addAccount(label, pk);
+        if (res.error) {
+            errorEl.textContent = res.error;
+            return;
+        }
+        
+        closeAddAccountModal();
+        toast('New wallet account added successfully!', 'success');
+        
+        // Auto-switch to the newly added account
+        const newAcc = res[res.length - 1];
+        await switchAccount(newAcc.address);
+    } catch (e) {
+        errorEl.textContent = e.message;
+    }
+}
+
+async function deleteActiveAccount() {
+    const activeAddr = await window.wallet.address();
+    if (!confirm(`Are you sure you want to delete the active sub-wallet account (${activeAddr.substring(0,6)}...)? This action cannot be undone unless you have backed up its private key.`)) {
+        return;
+    }
+    
+    try {
+        const res = await window.wallet.deleteAccount(activeAddr);
+        if (res.error) {
+            toast(`Failed to delete account: ${res.error}`, 'error');
+            return;
+        }
+        
+        toast('Sub-wallet account deleted successfully.', 'success');
+        
+        const primaryAddr = await window.wallet.address();
+        document.getElementById('addr').textContent = primaryAddr;
+        
+        await loadAccounts();
+        await updateQrCode();
+        await refreshBalance();
+        await refreshTxHistory();
+        
+        if (currentTab === 'contracts') {
+            await refreshCommandCenter();
+        }
+    } catch (e) {
+        toast(`Error deleting account: ${e.message}`, 'error');
     }
 }
