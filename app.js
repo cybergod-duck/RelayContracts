@@ -300,11 +300,17 @@ async function refreshBalance() {
         
         const bnbLine = document.getElementById('bnbLine');
         if (bnbLine) {
-            bnbLine.innerHTML = totalBnb.toFixed(6) + ' BNB <span class="dim"> - $' + (totalBnb * currentBnbPrice).toFixed(2) + '</span>';
+            const bnbTotal = (totalBnb + bscWeth) * currentBnbPrice;
+            if (bscWeth > 0) {
+                bnbLine.innerHTML = totalBnb.toFixed(6) + ' BNB + ' + bscWeth.toFixed(6) + ' WBNB <span class="dim"> - $' + bnbTotal.toFixed(2) + '</span>';
+            } else {
+                bnbLine.innerHTML = totalBnb.toFixed(6) + ' BNB <span class="dim"> - $' + (totalBnb * currentBnbPrice).toFixed(2) + '</span>';
+            }
         }
         
-        document.getElementById('wethLine').innerHTML = totalWeth.toFixed(6) + ' WETH <span class="dim"> - $' + ((totalWeth - bscWeth) * currentEthPrice + bscWeth * currentBnbPrice).toFixed(2) + '</span>';
-        document.getElementById('usdcLine').innerHTML = totalUsdc.toFixed(2) + ' USDC <span class="dim"> - $' + totalUsdc.toFixed(2) + '</span>';
+        const realWeth = totalWeth - bscWeth;
+        document.getElementById('wethLine').innerHTML = realWeth.toFixed(6) + ' WETH <span class="dim"> - $' + (realWeth * currentEthPrice).toFixed(2) + '</span>';
+        document.getElementById('usdcLine').textContent = totalUsdc.toFixed(2) + ' USDC';
 
         // Render individual breakdown on Networks tab
         document.getElementById('netBaseEth').textContent = baseEth.toFixed(6) + ' ETH';
@@ -706,7 +712,7 @@ async function refreshRelay() {
 async function sweepAllNetworks() {
     const btn = document.getElementById('sweepBtn');
     const resultEl = document.getElementById('sweepResult');
-    const networks = ['polygon', 'arbitrum', 'optimism', 'bsc', 'linea'];
+    const networks = ['base', 'polygon', 'arbitrum', 'optimism', 'bsc', 'linea'];
 
     // Reset all rows
     networks.forEach(net => {
@@ -721,8 +727,9 @@ async function sweepAllNetworks() {
     });
     const baseRow = document.getElementById('sweep-row-base');
     if (baseRow) {
-        baseRow.className = 'sweep-row';
-        baseRow.querySelector('.sweep-row-status').textContent = 'collecting';
+        baseRow.className = 'sweep-row sweep-active';
+        baseRow.querySelector('.sweep-row-status').textContent = 'sweeping local…';
+        baseRow.querySelector('.sweep-row-status').style.color = '#00d2ff';
         const amtEl = baseRow.querySelector('.sweep-row-amount');
         amtEl.style.display = 'none';
         amtEl.textContent = '';
@@ -734,6 +741,8 @@ async function sweepAllNetworks() {
 
     let totalUsdc = 0;
     let anySuccess = false;
+    let skippedCount = 0;
+    let gasNeededCount = 0;
 
     for (const net of networks) {
         const row = document.getElementById('sweep-row-' + net);
@@ -746,35 +755,52 @@ async function sweepAllNetworks() {
 
         try {
             let res;
-            if (net === 'polygon')  res = await window.wallet.bridgePolygonToBase();
+            if (net === 'base')       res = await window.wallet.sweepToUsdc('base');
+            else if (net === 'polygon')  res = await window.wallet.bridgePolygonToBase();
             else if (net === 'arbitrum') res = await window.wallet.bridgeArbitrumToBase();
             else if (net === 'optimism') res = await window.wallet.bridgeOptimismToBase();
             else if (net === 'bsc')      res = await window.wallet.bridgeBscToBase();
             else if (net === 'linea')    res = await window.wallet.bridgeLineaToBase();
 
-            if (res && res.error) {
-                if (row) row.className = 'sweep-row sweep-error';
-                if (statusEl) { statusEl.textContent = 'skipped'; statusEl.style.color = 'var(--text2)'; }
-                if (amtEl) { amtEl.textContent = ''; amtEl.style.display = 'none'; }
-            } else if (res && res.ok !== false) {
+            if (res && res.status === 'success') {
+                // GREEN - successful swap/bridge
                 const amt = parseFloat(res.amount || '0');
                 totalUsdc += amt;
                 anySuccess = true;
                 if (row) row.className = 'sweep-row sweep-done';
-                if (statusEl) { statusEl.textContent = '✓'; statusEl.style.color = 'var(--green)'; }
-                if (amtEl && amt > 0) { amtEl.textContent = '+' + amt.toFixed(2) + ' USDC'; amtEl.style.display = ''; }
+                if (statusEl) { statusEl.textContent = '✓ swapped'; statusEl.style.color = 'var(--green)'; }
+                if (amtEl && amt > 0) { amtEl.textContent = '+' + amt.toFixed(4) + ' ETH'; amtEl.style.display = ''; }
                 else if (statusEl) { statusEl.textContent = '✓ done'; }
-            } else {
+            } else if (res && res.status === 'skipped') {
+                // GREY - nothing to do, not an error
+                skippedCount++;
+                if (row) row.className = 'sweep-row sweep-skipped';
+                if (statusEl) { statusEl.textContent = '— empty'; statusEl.style.color = 'var(--dim)'; }
+                if (amtEl) { amtEl.textContent = ''; amtEl.style.display = 'none'; }
+            } else if (res && res.status === 'gas_needed') {
+                // AMBER - needs attention but not broken
+                gasNeededCount++;
+                if (row) row.className = 'sweep-row sweep-gas';
+                if (statusEl) { statusEl.textContent = '⛽ needs gas'; statusEl.style.color = '#ffaa00'; statusEl.title = res.reason; }
+                if (amtEl) { amtEl.textContent = ''; amtEl.style.display = 'none'; }
+            } else if (res && res.error) {
+                // RED - actual error
                 if (row) row.className = 'sweep-row sweep-error';
-                if (statusEl) { statusEl.textContent = 'nothing'; statusEl.style.color = 'var(--text2)'; }
+                if (statusEl) { statusEl.textContent = '✗ failed'; statusEl.style.color = '#ff5050'; statusEl.title = res.error; }
+                if (amtEl) { amtEl.textContent = ''; amtEl.style.display = 'none'; }
+            } else {
+                // GREY - unknown/empty
+                skippedCount++;
+                if (row) row.className = 'sweep-row sweep-skipped';
+                if (statusEl) { statusEl.textContent = '— empty'; statusEl.style.color = 'var(--dim)'; }
             }
         } catch (e) {
             if (row) row.className = 'sweep-row sweep-error';
-            if (statusEl) { statusEl.textContent = 'error'; statusEl.style.color = '#ff5050'; }
+            if (statusEl) { statusEl.textContent = '✗ failed'; statusEl.style.color = '#ff5050'; statusEl.title = e.message; }
         }
     }
 
-    // Light up Base as final destination
+    // Update base row to collecting state after all sweeps
     if (baseRow) {
         baseRow.className = 'sweep-row sweep-done';
         const statusEl = baseRow.querySelector('.sweep-row-status');
@@ -793,8 +819,11 @@ async function sweepAllNetworks() {
     if (anySuccess) {
         resultEl.innerHTML = '<span class="result-ok">✅ Sweep complete — ' + totalUsdc.toFixed(2) + ' USDC bridging to Base</span>';
         toast('Sweep complete! ' + totalUsdc.toFixed(2) + ' USDC bridging to Base.', 'success');
+    } else if (gasNeededCount > 0) {
+        resultEl.innerHTML = '<span style="color:#ffaa00;">' + gasNeededCount + ' chain' + (gasNeededCount > 1 ? 's' : '') + ' need gas — send ~0.001 ETH to continue</span>';
+        toast(gasNeededCount + ' chain(s) need gas to sweep.', 'info');
     } else {
-        resultEl.innerHTML = '<span style="color:var(--text2);">Nothing to sweep — balances below minimum threshold.</span>';
+        resultEl.innerHTML = '<span style="color:var(--dim);">All chains empty — nothing to sweep</span>';
     }
 
     refreshRelay();

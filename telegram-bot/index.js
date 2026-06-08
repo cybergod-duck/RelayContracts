@@ -24,16 +24,16 @@ const providers = {
 
 function getProxyAddress(netKey) {
     const appData = process.env.APPDATA || (process.platform == 'darwin' ? process.env.HOME + '/Library/Application Support' : process.env.HOME + "/.config");
-    const storePath = path.join(appData, 'relay-wallet', 'wallet.json');
+    const storePath = path.join(appData, 'cold-storage-wallet', 'wallet.json');
     
-    // Default fallback addresses
+    // Default fallback addresses (all deployed)
     const defaults = {
         base: '0x867B0E4946ECe61Fd0A744f4a66b9c1Ef9408aC3',
-        polygon: '0x563dBE76386510CB120Df75C9eC2e643432017ff',
-        arbitrum: 'Pending Deployment',
-        optimism: 'Pending Deployment',
-        bsc: 'Pending Deployment',
-        linea: 'Pending Deployment'
+        polygon: '0x5193Cd26B642De929068a950d79B6a03EDc7A37A',
+        arbitrum: '0x06CE41c7CBD64Fd0994c311AEeCBe4628ddEB58D',
+        optimism: '0x06CE41c7CBD64Fd0994c311AEeCBe4628ddEB58D',
+        bsc: '0x06CE41c7CBD64Fd0994c311AEeCBe4628ddEB58D',
+        linea: '0x06CE41c7CBD64Fd0994c311AEeCBe4628ddEB58D'
     };
     
     try {
@@ -91,9 +91,24 @@ bot.telegram.setMyCommands([
 bot.start((ctx) => {
     const welcomeText = 
         `⚡ *Welcome to the Relay Multi\\-Chain Swap Bot\\!*\n\n` +
-        `Send me any token contract address on *Base* or *Polygon*, and I will instantly run a safety scan and provide direct swap routing through your fee\\-protected relay\\.\n\n` +
-        `🔍 *How to check a token:*\n` +
-        `Just paste the contract address directly into this chat\\.`;
+        `Your all\\-in\\-one DeFi toolkit for multi\\-chain token scanning, fee\\-protected swaps, and automated bridging\\.\n\n` +
+        `🌐 *Supported Networks:*\n` +
+        `• Base • Polygon • Arbitrum\n` +
+        `• Optimism • BSC • Linea\n\n` +
+        `🔍 *Token Scanner*\n` +
+        `Paste any token contract address to instantly view supply, decimals, holder info, and safety analysis\\.\n\n` +
+        `💱 *Fee\\-Protected Swaps*\n` +
+        `Execute swaps through verified relay contracts with a 0\\.01% routing fee — no front\\-running, no sandwich attacks\\.\n\n` +
+        `🧹 *Multi\\-Chain Sweep*\n` +
+        `Automatically sweep native gas and wrapped tokens across all networks, swap to USDC, and bridge everything to Base in one command\\.\n\n` +
+        `🔐 *Security*\n` +
+        `All contracts are verified on\\-chain\\. Your private key never leaves your environment\\.\n\n` +
+        `📋 *Commands:*\n` +
+        `/help — Usage guide\n` +
+        `/stats — View deployed contracts\n` +
+        `/sweep — Sweep \\& bridge a single network\n` +
+        `/sweepall — Sweep \\& bridge all networks\n\n` +
+        `💡 *Get started:* Just paste a token contract address into this chat\\.`;
 
     const photoPath = path.join(__dirname, 'welcome.png');
     if (fs.existsSync(photoPath)) {
@@ -117,7 +132,7 @@ bot.help((ctx) => {
     ctx.reply(
         `⚙️ Help Guide:\n\n` +
         `1. Paste a 42-character token address (e.g. 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913).\n` +
-        `2. Choose the network (Base or Polygon).\n` +
+        `2. Choose the network (Base, Polygon, Arbitrum, Optimism, BSC, or Linea).\n` +
         `3. View token parameters and execute instant fee-protected swaps.\n\n` +
         `All transactions are routed securely.`
     );
@@ -131,7 +146,8 @@ bot.command('stats', (ctx) => {
         `• Polygon Proxy: ${proxies.polygon}\n` +
         `• Arbitrum Proxy: ${proxies.arbitrum}\n` +
         `• Optimism Proxy: ${proxies.optimism}\n` +
-        `• BSC Proxy: ${proxies.bsc}\n\n` +
+        `• BSC Proxy: ${proxies.bsc}\n` +
+        `• Linea Proxy: ${proxies.linea}\n\n` +
         `Status: Active & Secure\n` +
         `Fees: 0.01% routing fee`
     );
@@ -158,7 +174,8 @@ bot.on('text', async (ctx) => {
                     Markup.button.callback('🔴 Optimism', `scan_optimism:${address}`)
                 ],
                 [
-                    Markup.button.callback('🟡 BSC', `scan_bsc:${address}`)
+                    Markup.button.callback('🟡 BSC', `scan_bsc:${address}`),
+                    Markup.button.callback('🟢 Linea', `scan_linea:${address}`)
                 ]
             ])
         );
@@ -181,7 +198,8 @@ bot.on('callback_query', async (ctx) => {
             polygon: 'Polygon',
             arbitrum: 'Arbitrum',
             optimism: 'Optimism',
-            bsc: 'BSC'
+            bsc: 'BSC',
+            linea: 'Linea'
         };
         const networkName = networkNames[netKey] || 'Unknown';
         
@@ -190,7 +208,8 @@ bot.on('callback_query', async (ctx) => {
             polygon: `https://polygonscan.com/address/${tokenAddress}`,
             arbitrum: `https://arbiscan.io/address/${tokenAddress}`,
             optimism: `https://optimistic.etherscan.io/address/${tokenAddress}`,
-            bsc: `https://bscscan.com/address/${tokenAddress}`
+            bsc: `https://bscscan.com/address/${tokenAddress}`,
+            linea: `https://lineascan.build/address/${tokenAddress}`
         };
         const explorerUrl = explorers[netKey] || `https://etherscan.io/address/${tokenAddress}`;
         
@@ -282,17 +301,17 @@ const NETWORKS = {
         weth: '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619',
         usdc: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
         relay: '0x06CE41c7CBD64Fd0994c311AEeCBe4628ddEB58D',
-        proxy: '0x563dBE76386510CB120Df75C9eC2e643432017ff',
+        proxy: '0x5193Cd26B642De929068a950d79B6a03EDc7A37A',
         pool: '0x6e7a5FAFcec6BB1e78bAE2A1F0B612012BF14827',
         router: '0xE592427A0AEce92De3Edee1F18E0157C05861564'
     },
     arbitrum: {
         name: 'Arbitrum',
         rpc: 'https://arb1.arbitrum.io/rpc',
-        weth: '0x82aF49447D8a07e3bd95BD0d56f352415231a11d',
+        weth: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
         usdc: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-        relay: '',
-        proxy: '',
+        relay: '0x06CE41c7CBD64Fd0994c311AEeCBe4628ddEB58D',
+        proxy: '0x06CE41c7CBD64Fd0994c311AEeCBe4628ddEB58D',
         pool: '',
         router: '0xE592427A0AEce92De3Edee1F18E0157C05861564'
     },
@@ -300,31 +319,31 @@ const NETWORKS = {
         name: 'Optimism',
         rpc: 'https://mainnet.optimism.io',
         weth: '0x4200000000000000000000000000000000000006',
-        usdc: '0x0b2C639c533813f4Aa9d7837CAf62653d097Ff85',
-        relay: '',
-        proxy: '',
+        usdc: '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
+        relay: '0x06CE41c7CBD64Fd0994c311AEeCBe4628ddEB58D',
+        proxy: '0x06CE41c7CBD64Fd0994c311AEeCBe4628ddEB58D',
         pool: '',
-        router: '0xE592427A0AEce92De3Edee1F18E0157C05861564'
+        router: '0x68b3465833fb72A70ecDF485E0e4C7bD8665Fc45'
     },
     bsc: {
         name: 'BSC',
         rpc: 'https://bsc-dataseed.binance.org/',
         weth: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
-        usdc: '0x8AC76a51cc950d9822D68b83fE1Ad97B32CD580d',
-        relay: '',
-        proxy: '',
+        usdc: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
+        relay: '0x06CE41c7CBD64Fd0994c311AEeCBe4628ddEB58D',
+        proxy: '0x06CE41c7CBD64Fd0994c311AEeCBe4628ddEB58D',
         pool: '',
         router: '0xB3F8688113AE7563809Ba837dc12daC54a03ccCd'
     },
     linea: {
         name: 'Linea',
         rpc: 'https://rpc.linea.build',
-        weth: '0xe5D7C2a04F312d47B1D81d4a2aa7a6B5a92a54CA',
+        weth: '0xe5D7C2a44FfDDf6b295A15c148167daaAf5Cf34f',
         usdc: '0x176211869cA2b568f2A7D4EE941E073a821EE1ff',
-        relay: '',
-        proxy: '',
+        relay: '0x06CE41c7CBD64Fd0994c311AEeCBe4628ddEB58D',
+        proxy: '0x06CE41c7CBD64Fd0994c311AEeCBe4628ddEB58D',
         pool: '',
-        router: '0x2626664c2603f293e11065a55d650b3f8099176f'
+        router: '0x3d4e44Eb1374240CE5F1B871ab261CD16335B76a'
     }
 };
 
@@ -345,7 +364,8 @@ const SPOKE_POOL_ABI = [
 const ERC20_ABI_BRIDGE = [
     'function approve(address spender, uint256 amount) external returns (bool)',
     'function balanceOf(address account) external view returns (uint256)',
-    'function transfer(address to, uint256 amount) external returns (bool)'
+    'function transfer(address to, uint256 amount) external returns (bool)',
+    'function allowance(address,address) view returns (uint256)'
 ];
 
 const ROUTER_ABI_BRIDGE = [
@@ -528,40 +548,26 @@ async function sweepAndBridgePolygon(signer, statusUpdate) {
 
     let usdcBal = await nativeUsdcContract.balanceOf(signer.address);
     if (usdcBal.gt(0)) {
-        await statusUpdate("Bridging USDC -> Base USDC via Across...");
-        let quote;
-        try {
-            quote = await getAcrossSuggestedFees(usdcBal.toString(), nativeUsdcAddr, 137);
-        } catch (e) {
-            quote = {
-                spokePoolAddress: spokePoolAddr,
-                outputAmount: usdcBal.mul(99).div(100).toString(),
-                quoteTimestamp: Math.floor(Date.now() / 1000),
-                exclusiveRelayer: '0x0000000000000000000000000000000000000000',
-                exclusivityDeadline: 0,
-                fillDeadline: Math.floor(Date.now() / 1000) + 7200
-            };
-        }
-
+        await statusUpdate("Bridging USDC → Base USDC via Across...");
+        const quote = await getAcrossSuggestedFees(usdcBal.toString(), nativeUsdcAddr, 137);
         const activeSpokePool = quote.spokePoolAddress || spokePoolAddr;
-        const approveSpokeTx = await nativeUsdcContract.approve(activeSpokePool, usdcBal, overrides);
-        await approveSpokeTx.wait();
+        const rawExclDl = Number(quote.exclusivityDeadline || 0);
+        const exclDl = rawExclDl > 9999999 ? rawExclDl : 0;
+        const exclRelayer = exclDl > 0 ? quote.exclusiveRelayer : ethers.constants.AddressZero;
+
+        const existingAllowance = await nativeUsdcContract.allowance(signer.address, activeSpokePool);
+        if (existingAllowance.lt(usdcBal)) {
+            const approveSpokeTx = await nativeUsdcContract.approve(activeSpokePool, usdcBal, { gasLimit: 80000, ...overrides });
+            await approveSpokeTx.wait();
+        }
 
         const spokePoolContract = new ethers.Contract(activeSpokePool, SPOKE_POOL_ABI, signer);
         const bridgeTx = await spokePoolContract.depositV3(
-            signer.address,
-            signer.address,
-            nativeUsdcAddr,
-            '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-            usdcBal,
-            quote.outputAmount,
-            8453,
-            quote.exclusiveRelayer,
-            quote.timestamp || quote.quoteTimestamp,
-            quote.fillDeadline,
-            quote.exclusivityDeadline || 0,
-            '0x',
-            { gasLimit: 250000, ...overrides }
+            signer.address, signer.address,
+            nativeUsdcAddr, '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+            usdcBal, quote.outputAmount, 8453,
+            exclRelayer, Number(quote.timestamp), Number(quote.fillDeadline), exclDl,
+            '0x', { gasLimit: 300000, ...overrides }
         );
         await bridgeTx.wait();
         txs.push({ step: 'bridge', hash: bridgeTx.hash });
@@ -651,40 +657,26 @@ async function sweepAndBridgeEvmChain(networkKey, signer, statusUpdate) {
 
     let usdcBal = await usdcContract.balanceOf(signer.address);
     if (usdcBal.gt(0)) {
-        await statusUpdate("Bridging USDC -> Base USDC via Across...");
-        let quote;
-        try {
-            quote = await getAcrossSuggestedFees(usdcBal.toString(), net.usdc, chainId);
-        } catch (e) {
-            quote = {
-                spokePoolAddress: spokePoolAddr,
-                outputAmount: usdcBal.mul(99).div(100).toString(),
-                quoteTimestamp: Math.floor(Date.now() / 1000),
-                exclusiveRelayer: '0x0000000000000000000000000000000000000000',
-                exclusivityDeadline: 0,
-                fillDeadline: Math.floor(Date.now() / 1000) + 7200
-            };
-        }
-
+        await statusUpdate("Bridging USDC → Base USDC via Across...");
+        const quote = await getAcrossSuggestedFees(usdcBal.toString(), net.usdc, chainId);
         const activeSpokePool = quote.spokePoolAddress || spokePoolAddr;
-        const approveSpokeTx = await usdcContract.approve(activeSpokePool, usdcBal);
-        await approveSpokeTx.wait();
+        const rawExclDl = Number(quote.exclusivityDeadline || 0);
+        const exclDl = rawExclDl > 9999999 ? rawExclDl : 0;
+        const exclRelayer = exclDl > 0 ? quote.exclusiveRelayer : ethers.constants.AddressZero;
+
+        const existingAllowance = await usdcContract.allowance(signer.address, activeSpokePool);
+        if (existingAllowance.lt(usdcBal)) {
+            const approveSpokeTx = await usdcContract.approve(activeSpokePool, usdcBal, { gasLimit: 80000 });
+            await approveSpokeTx.wait();
+        }
 
         const spokePoolContract = new ethers.Contract(activeSpokePool, SPOKE_POOL_ABI, signer);
         const bridgeTx = await spokePoolContract.depositV3(
-            signer.address,
-            signer.address,
-            net.usdc,
-            '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
-            usdcBal,
-            quote.outputAmount,
-            8453,
-            quote.exclusiveRelayer,
-            quote.timestamp || quote.quoteTimestamp,
-            quote.fillDeadline,
-            quote.exclusivityDeadline || 0,
-            '0x',
-            { gasLimit: 250000 }
+            signer.address, signer.address,
+            net.usdc, '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+            usdcBal, quote.outputAmount, 8453,
+            exclRelayer, Number(quote.timestamp), Number(quote.fillDeadline), exclDl,
+            '0x', { gasLimit: 300000 }
         );
         await bridgeTx.wait();
         txs.push({ step: 'bridge', hash: bridgeTx.hash });

@@ -9,3 +9,7 @@ hardhat-env/
 diag_sweep.js
 *.exe
 RelayWallet*
+
+bridge_debug.log
+telegram-bot/.env
+telegram-bot/node_modules/

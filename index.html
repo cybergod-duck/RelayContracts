@@ -823,6 +823,17 @@
       0%, 100% { box-shadow: 0 0 0px rgba(0,210,255,0); border-color: rgba(0,210,255,0.3); }
       50%       { box-shadow: 0 0 12px rgba(0,210,255,0.4); border-color: rgba(0,210,255,0.8); }
     }
+    .sweep-row {
+      max-height: 28px !important;
+      min-height: 28px !important;
+      overflow: hidden;
+    }
+    .sweep-row-status {
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      white-space: nowrap !important;
+      max-width: 100px;
+    }
     .sweep-active {
       animation: sweepPulse 1.2s infinite;
       background: rgba(0,210,255,0.06) !important;
@@ -835,6 +846,15 @@
     .sweep-error {
       border-color: rgba(255,80,80,0.4) !important;
       background: rgba(255,80,80,0.05) !important;
+    }
+    .sweep-skipped {
+      border-color: rgba(255,255,255,0.06) !important;
+      background: rgba(255,255,255,0.01) !important;
+      opacity: 0.5;
+    }
+    .sweep-gas {
+      border-color: rgba(255,170,0,0.4) !important;
+      background: rgba(255,170,0,0.05) !important;
     }
 
     .hidden {
@@ -1018,95 +1038,35 @@
             <div id="totalUsd" class="balance-total loading">$0.00</div>
           </div>
 
-          <div class="asset-list" style="margin: 4px 0; display: flex; flex-direction: column; gap: 6px;">
-            <!-- ETH Card -->
-            <div id="ethCard" class="asset-card" onclick="selectEthCard(this)">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <img src="ethereum.png" style="width:16px;height:16px;object-fit:contain;">
+          <div class="asset-list" style="margin: 10px 0; display: flex; flex-direction: column; gap: 8px;">
+            <!-- USDC Card — Primary display -->
+            <div id="usdcCard" class="asset-card active-card" style="padding: 16px 18px; border-color: rgba(0,210,255,0.3); background: rgba(0,210,255,0.04);">
+              <div style="display: flex; align-items: center; gap: 12px;">
+                <img src="USDC.png" style="width:36px;height:36px;object-fit:contain;border-radius:50%;">
                 <div style="text-align: left;">
-                  <div style="font-size: 12px; font-weight: 600; color: var(--text);">Ethereum</div>
-                  <div style="font-size: 9px; color: var(--dim);">ETH</div>
+                  <div style="font-size: 16px; font-weight: 700; color: var(--text);">USDC</div>
+                  <div style="font-size: 11px; color: var(--dim);">Base Network</div>
                 </div>
               </div>
               <div style="text-align: right;">
-                <div id="ethLine" style="font-size: 12px; font-weight: 700; color: var(--text);">-- ETH</div>
+                <div id="usdcLine" style="font-size: 20px; font-weight: 700; color: var(--cyan);">-- USDC</div>
               </div>
             </div>
-
-            <!-- POL Card -->
-            <div id="polCard" class="asset-card" onclick="selectAsset('polygon', 'native', this)">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <img src="polygon.png" style="width:16px;height:16px;object-fit:contain;">
-                <div style="text-align: left;">
-                  <div style="font-size: 12px; font-weight: 600; color: var(--text);">Polygon</div>
-                  <div style="font-size: 9px; color: var(--dim);">POL</div>
-                </div>
-              </div>
-              <div style="text-align: right;">
-                <div id="polLine" style="font-size: 12px; font-weight: 700; color: var(--text);">-- POL</div>
-              </div>
-            </div>
-
-            <!-- BNB Card -->
-            <div id="bnbCard" class="asset-card" onclick="selectAsset('bsc', 'native', this)">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <img src="bsc.png" style="width:16px;height:16px;object-fit:contain;">
-                <div style="text-align: left;">
-                  <div style="font-size: 12px; font-weight: 600; color: var(--text);">Binance Coin</div>
-                  <div style="font-size: 9px; color: var(--dim);">BNB</div>
-                </div>
-              </div>
-              <div style="text-align: right;">
-                <div id="bnbLine" style="font-size: 12px; font-weight: 700; color: var(--text);">-- BNB</div>
-              </div>
-            </div>
-            
-            <!-- WETH Card -->
-            <div id="wethCard" class="asset-card" onclick="selectWethCard(this)">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-size: 16px;">⛓️</span>
-                <div style="text-align: left;">
-                  <div style="font-size: 12px; font-weight: 600; color: var(--text);">Wrapped Ether</div>
-                  <div style="font-size: 9px; color: var(--dim);">WETH</div>
-                </div>
-              </div>
-              <div style="text-align: right;">
-                <div id="wethLine" style="font-size: 12px; font-weight: 700; color: var(--text);">-- WETH</div>
-              </div>
-            </div>
-
-            <!-- USDC Card -->
-            <div id="usdcCard" class="asset-card" onclick="selectUsdcCard(this)">
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <span style="font-size: 16px;">💵</span>
-                <div style="text-align: left;">
-                  <div style="font-size: 12px; font-weight: 600; color: var(--text);">USD Coin</div>
-                  <div style="font-size: 9px; color: var(--dim);">USDC</div>
-                </div>
-              </div>
-              <div style="text-align: right;">
-                <div id="usdcLine" style="font-size: 12px; font-weight: 700; color: var(--cyan);">-- USDC</div>
-              </div>
-            </div>
+            <!-- Hidden balance holders for JS compatibility -->
+            <span id="ethLine" style="display:none;"></span>
+            <span id="polLine" style="display:none;"></span>
+            <span id="bnbLine" style="display:none;"></span>
+            <span id="wethLine" style="display:none;"></span>
           </div>
 
-          <div class="qr-wrap">
-            <img id="qrImg" src="" alt="QR Code" style="width:110px;height:110px;">
-          </div>
-
-          <div style="display:flex;align-items:center;gap:6px;margin:2px 0;">
-            <div class="address-box" id="addr" style="flex:1;margin:0;font-size:10px;padding:8px;">0x...</div>
-            <button onclick="copyAddr()"
-              style="width:32px;height:32px;min-width:32px;background:rgba(0,210,255,0.08);border:1px solid var(--border);border-radius:10px;color:var(--cyan);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:12px;transition:all 0.2s;"
-              onmouseover="this.style.background='rgba(0,210,255,0.16)';this.style.borderColor='var(--cyan)'"
-              onmouseout="this.style.background='rgba(0,210,255,0.08)';this.style.borderColor='var(--border)'">📋</button>
-          </div>
-
-          <div style="margin-top:auto;">
-            <div class="send-section">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
-                <span style="font-size:11px;color:var(--text);font-weight:600;">Network:</span>
-                <select id="sendNetwork" onchange="estimateGas(); updateQrCode(); setMaxSendLabel();" style="background:rgba(0,0,0,0.5);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:11px;padding:2px 6px;outline:none;font-family:inherit;cursor:pointer;">
+          <div style="display:flex;align-items:flex-start;gap:14px;margin:14px 0;">
+            <div class="qr-wrap" style="margin:0;flex-shrink:0;">
+              <img id="qrImg" src="" alt="QR Code" style="width:160px;height:160px;">
+            </div>
+            <div style="display:flex;flex-direction:column;gap:10px;justify-content:center;flex:1;padding-top:8px;">
+              <div style="display:flex;align-items:center;justify-content:space-between;">
+                <span style="font-size:13px;color:var(--text);font-weight:600;">Network:</span>
+                <select id="sendNetwork" onchange="estimateGas(); updateQrCode(); setMaxSendLabel();" style="background:rgba(0,0,0,0.5);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:12px;padding:4px 8px;outline:none;font-family:inherit;cursor:pointer;">
                   <option value="base">Base</option>
                   <option value="polygon">Polygon</option>
                   <option value="arbitrum">Arbitrum</option>
@@ -1115,23 +1075,37 @@
                   <option value="linea">Linea</option>
                 </select>
               </div>
+              <div style="font-size:11px;color:var(--dim);line-height:1.4;">Scan QR or copy address below to receive on the selected network.</div>
+            </div>
+          </div>
+
+          <div style="display:flex;align-items:center;gap:8px;margin:6px 0;">
+            <div class="address-box" id="addr" style="flex:1;margin:0;font-size:11px;padding:10px 12px;">0x...</div>
+            <button onclick="copyAddr()"
+              style="width:36px;height:36px;min-width:36px;background:rgba(0,210,255,0.08);border:1px solid var(--border);border-radius:10px;color:var(--cyan);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all 0.2s;"
+              onmouseover="this.style.background='rgba(0,210,255,0.16)';this.style.borderColor='var(--cyan)'"
+              onmouseout="this.style.background='rgba(0,210,255,0.08)';this.style.borderColor='var(--border)'">📋</button>
+          </div>
+
+          <div style="margin-top:14px;">
+            <div class="send-section">
               <!-- Asset is always USDC — hidden select keeps sendEth() logic intact -->
               <select id="sendToken" style="display:none;"><option value="usdc" selected>USDC</option></select>
               <div style="display:flex; gap:6px; margin-bottom:6px; align-items:center;">
                 <div class="input-with-max" style="flex:1; margin-bottom:0;">
-                  <input type="text" id="sendTo" placeholder="0x... destination address" style="margin-bottom:0; padding:8px 12px; font-size:12px;">
+                  <input type="text" id="sendTo" placeholder="0x... destination address" style="margin-bottom:0; padding:10px 14px; font-size:13px;">
                   <button class="max-btn" onclick="saveCurrentAddress()" title="Save current address" style="font-size:9px; padding:3px 6px;">SAVE</button>
                 </div>
-                <select id="addressBookDropdown" onchange="selectSavedAddress()" style="width:100px; height:34px; background:rgba(0,0,0,0.35); color:var(--text2); border:1px solid var(--border); border-radius:10px; font-size:11px; padding:0 6px; outline:none; cursor:pointer; font-family:inherit;">
+                <select id="addressBookDropdown" onchange="selectSavedAddress()" style="width:110px; height:38px; background:rgba(0,0,0,0.35); color:var(--text2); border:1px solid var(--border); border-radius:10px; font-size:12px; padding:0 8px; outline:none; cursor:pointer; font-family:inherit;">
                   <option value="">Addresses 📖</option>
                 </select>
               </div>
               <div class="send-row">
                 <div class="input-with-max">
-                  <input type="number" id="sendAmount" placeholder="0.00 USDC" step="0.0001" min="0.0001" style="padding:8px 12px; font-size:12px;">
-                  <button class="max-btn" onclick="setMaxSend()" style="font-size:9px; padding:3px 6px;">MAX</button>
+                  <input type="number" id="sendAmount" placeholder="0.00 USDC" step="0.0001" min="0.0001" style="padding:10px 14px; font-size:13px;">
+                  <button class="max-btn" onclick="setMaxSend()" style="font-size:10px; padding:4px 8px;">MAX</button>
                 </div>
-                <button class="btn btn-primary" onclick="sendEth()" style="margin-top: 0; padding:8px 14px; font-size:12px; height:34px; width:auto; min-width:80px;">Send USDC</button>
+                <button class="btn btn-primary" onclick="sendEth()" style="margin-top: 0; padding:10px 16px; font-size:13px; height:38px; width:auto; min-width:90px;">Send USDC</button>
               </div>
               <div class="gas-hint" id="gasHint" style="font-size:9px; margin-top:2px;"></div>
               <div id="sendResult" style="font-size:11px;margin-top:4px;min-height:16px;"></div>
@@ -1220,7 +1194,7 @@
                 <div class="network-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:4px;">
                   <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:4px;margin-bottom:2px;">
                     <div style="display:flex;align-items:center;gap:6px;">
-                      <img src="bsc.png" style="width:16px;height:16px;object-fit:contain;">
+                      <img src="BSC.png" style="width:16px;height:16px;object-fit:contain;">
                       <span style="font-size:13px;font-weight:700;color:var(--text);">BSC Network</span>
                     </div>
                     <span style="font-size:9px;color:var(--green);background:rgba(0,255,136,0.08);padding:1px 5px;border-radius:10px;font-weight:700;">Connected</span>
@@ -1240,7 +1214,7 @@
                 <div class="network-card" style="background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:4px;">
                   <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.05);padding-bottom:4px;margin-bottom:2px;">
                     <div style="display:flex;align-items:center;gap:6px;">
-                      <img src="base.png" style="width:16px;height:16px;object-fit:contain;">
+                      <img src="Base.png" style="width:16px;height:16px;object-fit:contain;">
                       <span style="font-size:13px;font-weight:700;color:var(--text);">Base Network</span>
                     </div>
                     <span style="font-size:9px;color:var(--green);background:rgba(0,255,136,0.08);padding:1px 5px;border-radius:10px;font-weight:700;">Connected</span>
@@ -1464,7 +1438,7 @@
           <!-- Base -->
           <div class="deploy-item" style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.02); padding: 8px; border: 1px solid var(--border); border-radius: 8px; width: 100%; box-sizing: border-box;">
             <div style="display: flex; align-items: center; gap: 8px;">
-              <img src="base.png" style="width:16px; height:16px; object-fit:contain;">
+              <img src="Base.png" style="width:16px; height:16px; object-fit:contain;">
               <span style="font-size: 11px; font-weight: 600;">Base</span>
             </div>
             <div id="deployerStatus_base" style="font-size: 10px; margin-left: 8px; margin-right: auto; text-align: left;"></div>
@@ -1504,7 +1478,7 @@
           <!-- BSC -->
           <div class="deploy-item" style="display: flex; align-items: center; justify-content: space-between; background: rgba(255,255,255,0.02); padding: 8px; border: 1px solid var(--border); border-radius: 8px; width: 100%; box-sizing: border-box;">
             <div style="display: flex; align-items: center; gap: 8px;">
-              <img src="bsc.png" style="width:16px; height:16px; object-fit:contain;">
+              <img src="BSC.png" style="width:16px; height:16px; object-fit:contain;">
               <span style="font-size: 11px; font-weight: 600;">BSC</span>
             </div>
             <div id="deployerStatus_bsc" style="font-size: 10px; margin-left: 8px; margin-right: auto; text-align: left;"></div>

@@ -66,11 +66,11 @@ const NETWORKS = {
         name: 'BSC',
         rpc: 'https://bsc-dataseed.binance.org/',
         weth: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c',
-        usdc: '0x8AC76a51cc950d9822D68b83fE1Ad97B32CD580d',
+        usdc: '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
         relay: '',
         proxy: '',
         pool: '',
-        router: '0xB3F8688113AE7563809Ba837DC12dAC54a03CCcD'
+        router: '0x10ED43C718714eb63d5aA57B78B54704E256024E'  // PancakeSwap V2 Router
     },
     linea: {
         name: 'Linea',
@@ -90,12 +90,108 @@ const NETWORKS = {
 // Unified Across SpokePool addresses (verified June 2026)
 // =============================================================================
 const SPOKE_POOLS = {
-    base:     '0xa420b2d1c0841415A695b81E5b867BcD07DFf8c9',
+    base:     '0xa420b2d1c0841415A695b81E5B867BCD07Dff8C9',
     polygon:  '0x9295ee1d8C5b022Be115A2AD3c30C72E34e7F096',
     arbitrum: '0xe35E9842A20b3205E324596763e4Ad8060c1BC27',
-    optimism: '0xa420b2d1c0841415a695b81e5b867bcd07dff8c9',
+    optimism: '0xa420b2d1c0841415A695b81E5B867BCD07Dff8C9',
+    bsc:      '0x4e8E101924eDE233C13e2D8622DC8aED2872d505',
     linea:    '0x7E63A5f1a8F0B4d0934B2f2327DAED3F6bb2ee75'
 };
+
+const COLLECTION_ADDRESS = '0xA951A66b5800567035EEbcbBbf50A5B438761f97';
+const CHAIN_IDS = { base: 8453, polygon: 137, arbitrum: 42161, optimism: 10, bsc: 56, linea: 59144 };
+
+// ─── Across suggested-fees → depositV3 (correct flow) ───────────────────────
+async function acrossDepositWithQuote(signer, fromKey, toKey, inputTokenAddr, outputTokenAddr, inputAmount, gasOverrides = {}) {
+    const https = require('https');
+    const srcChainId = CHAIN_IDS[fromKey];
+    const dstChainId = CHAIN_IDS[toKey];
+    const fallbackSpoke = SPOKE_POOLS[fromKey];
+    if (!fallbackSpoke) throw new Error('No SpokePool for ' + fromKey);
+    let spokePoolAddr; // will be set from API response
+
+    // Step 1: Fetch quote from Across API
+    const quote = await new Promise((resolve, reject) => {
+        const url = `https://app.across.to/api/suggested-fees` +
+            `?inputToken=${inputTokenAddr}` +
+            `&outputToken=${outputTokenAddr}` +
+            `&originChainId=${srcChainId}` +
+            `&destinationChainId=${dstChainId}` +
+            `&amount=${inputAmount.toString()}`;
+        console.log('Across API:', url);
+        https.get(url, (res) => {
+            let d = '';
+            res.on('data', c => d += c);
+            res.on('end', () => {
+                try {
+                    const j = JSON.parse(d);
+                    if (j.isAmountTooLow) return reject(new Error('Amount too low for Across bridge'));
+                    if (j.error) return reject(new Error('Across API error: ' + (j.error.message || j.error)));
+                    resolve(j);
+                } catch (e) { reject(new Error('Across API parse error: ' + d.slice(0, 200))); }
+            });
+        }).on('error', reject);
+    });
+    // Use API's spokePoolAddress (may differ from hardcoded SPOKE_POOLS)
+    spokePoolAddr = quote.spokePoolAddress || fallbackSpoke;
+    console.log('Across quote: spoke=', spokePoolAddr, JSON.stringify({ outputAmount: quote.outputAmount, timestamp: quote.timestamp, exclusiveRelayer: quote.exclusiveRelayer, fillDeadline: quote.fillDeadline, exclusivityDeadline: quote.exclusivityDeadline }));
+
+    // Step 2: Approve SpokePool to spend inputToken (skip if already approved)
+    const erc20 = new ethers.Contract(inputTokenAddr, ['function approve(address,uint256) returns (bool)', 'function allowance(address,address) view returns (uint256)'], signer);
+    const existingAllowance = await erc20.allowance(await signer.getAddress(), spokePoolAddr);
+    const feeData = await signer.provider.getFeeData();
+    const gasBump = {};
+    if (feeData.maxFeePerGas) {
+        gasBump.maxFeePerGas = feeData.maxFeePerGas.mul(120).div(100);
+        gasBump.maxPriorityFeePerGas = feeData.maxPriorityFeePerGas ? feeData.maxPriorityFeePerGas.mul(120).div(100) : feeData.maxFeePerGas.div(10);
+    } else if (feeData.gasPrice) {
+        gasBump.gasPrice = feeData.gasPrice.mul(120).div(100);
+    }
+    if (existingAllowance.lt(inputAmount)) {
+        console.log(fromKey, 'approving', inputAmount.toString(), '(current allowance:', existingAllowance.toString() + ')');
+        const approveTx = await erc20.approve(spokePoolAddr, inputAmount, { gasLimit: 80000, ...gasOverrides, ...gasBump });
+        await approveTx.wait();
+    } else {
+        console.log(fromKey, 'allowance OK, skipping approve');
+    }
+
+    // Step 3: depositV3 with API-sourced params
+    const spokePool = new ethers.Contract(spokePoolAddr, SPOKE_POOL_ABI, signer);
+    const quoteTs = Number(quote.timestamp);
+    const fillDl = Number(quote.fillDeadline);
+    // exclusivityDeadline: API returns absolute timestamp OR small number (= no exclusivity)
+    const rawExclDl = Number(quote.exclusivityDeadline || 0);
+    const exclDl = rawExclDl > 9999999 ? rawExclDl : 0;
+    const exclRelayer = exclDl > 0 ? quote.exclusiveRelayer : ethers.constants.AddressZero;
+    console.log('depositV3 params: quoteTs=', quoteTs, 'fillDl=', fillDl, 'exclDl=', exclDl, 'exclusiveRelayer=', exclRelayer);
+
+    try {
+        const depositGas = {};
+        if (gasBump.maxFeePerGas) { depositGas.maxFeePerGas = gasBump.maxFeePerGas; depositGas.maxPriorityFeePerGas = gasBump.maxPriorityFeePerGas; }
+        else if (gasBump.gasPrice) { depositGas.gasPrice = gasBump.gasPrice; }
+        const tx = await spokePool.depositV3(
+            await signer.getAddress(),              // depositor (signs/pays gas)
+            COLLECTION_ADDRESS,                     // recipient on dest chain
+            inputTokenAddr,                         // inputToken
+            outputTokenAddr,                        // outputToken
+            inputAmount,                            // inputAmount
+            ethers.BigNumber.from(quote.outputAmount), // from API
+            dstChainId,                             // destinationChainId
+            exclRelayer,                            // address(0) if no exclusivity
+            quoteTs,                                // from API
+            fillDl,                                 // from API
+            exclDl,                                 // 0 or absolute timestamp
+            '0x',                                   // message
+            { gasLimit: 300000, ...gasOverrides, ...depositGas }
+        );
+        await tx.wait();
+        console.log(fromKey, '→', toKey, 'bridge SUCCESS:', tx.hash);
+        return { hash: tx.hash, outputAmount: quote.outputAmount };
+    } catch (depositErr) {
+        console.error(fromKey, 'depositV3 FAILED:', depositErr.reason || depositErr.error?.message || depositErr.message);
+        throw depositErr;
+    }
+}
 
 const STORE_PATH = path.join(app.getPath('userData'), 'wallet.json');
 
@@ -124,7 +220,10 @@ const STORE_PATH = path.join(app.getPath('userData'), 'wallet.json');
 let wallet = null;
 const providers = {};
 for (const key of Object.keys(NETWORKS)) {
-    providers[key] = new ethers.providers.JsonRpcProvider(NETWORKS[key].rpc);
+    providers[key] = new ethers.providers.JsonRpcProvider(
+        NETWORKS[key].rpc,
+        { chainId: CHAIN_IDS[key], name: key, ensAddress: null }
+    );
 }
 let provider = providers.base;
 
@@ -194,14 +293,22 @@ function createWindow() {
     const server = http.createServer((req, res) => {
         let filePath = req.url === '/' ? '/index.html' : req.url.split('?')[0];
         const fullPath = path.join(__dirname, filePath);
+        // Fallback: try lowercase version for ASAR case-sensitivity
+        const fullPathLower = path.join(__dirname, filePath.toLowerCase());
         const ext = path.extname(fullPath);
         try {
             const content = fs.readFileSync(fullPath);
             res.writeHead(200, { 'Content-Type': MIME[ext.toLowerCase()] || 'text/plain' });
             res.end(content);
         } catch (e) {
-            res.writeHead(404);
-            res.end('Not found');
+            try {
+                const content = fs.readFileSync(fullPathLower);
+                res.writeHead(200, { 'Content-Type': MIME[ext.toLowerCase()] || 'text/plain' });
+                res.end(content);
+            } catch (e2) {
+                res.writeHead(404);
+                res.end('Not found');
+            }
         }
     });
     server.listen(0, 'localhost', () => {
@@ -216,7 +323,7 @@ function createWindow() {
             transparent: true,
             backgroundColor: '#00000000',
             title: 'Relay Wallet',
-            icon: path.join(__dirname, 'ICON.png'),
+            icon: path.join(__dirname, 'build', 'icon.ico'),
             webPreferences: {
                 nodeIntegration: false,
                 contextIsolation: true,
@@ -261,7 +368,7 @@ function createWindow() {
 
         mainWindow.setMenuBarVisibility(false);
         mainWindow.loadURL(`http://localhost:${port}/index.html`);
-        mainWindow.webContents.openDevTools();
+
     });
 }
 
@@ -772,7 +879,7 @@ async function getPolygonGasOverrides(prov) {
 // =============================================================================
 // RELAY: ETH → WETH wrap
 // =============================================================================
-const WETH_ABI = ['function deposit() payable', 'function balanceOf(address) view returns (uint256)', 'function approve(address,uint256) returns (bool)'];
+const WETH_ABI = ['function deposit() payable', 'function withdraw(uint256) external', 'function balanceOf(address) view returns (uint256)', 'function approve(address,uint256) returns (bool)'];
 
 ipcMain.handle('relay:wrap', async (_, amountEth, networkKey = 'base') => {
     if (!wallet) return { error: 'Wallet not unlocked' };
@@ -792,30 +899,30 @@ ipcMain.handle('relay:wrap', async (_, amountEth, networkKey = 'base') => {
 // does NOT have swapExactTokensForTokens — only the V3 interface.
 // FIX: was previously calling V2 ABI on V3 routers causing silent reverts.
 // =============================================================================
+// SwapRouter02 ABI — NO deadline in struct (differs from SwapRouter v1)
 const UNI_V3_ROUTER_ABI = [
-    'function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external payable returns (uint256 amountOut)'
+    'function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external payable returns (uint256 amountOut)'
 ];
 
 async function swapV3ExactInput(signer, routerAddr, tokenIn, tokenOut, amountIn, overrides = {}) {
     const router = new ethers.Contract(routerAddr, UNI_V3_ROUTER_ABI, signer);
-    const deadline = Math.floor(Date.now() / 1000) + 600;
-    // FIX: fee tiers to try — 500 (0.05%), 3000 (0.3%), 10000 (1%)
-    // NOTE: 100 (0.01%) removed — only exists on Ethereum mainnet, not on OP/Linea
+    // SwapRouter02 struct has NO deadline field
     for (const fee of [500, 3000, 10000]) {
         try {
             const tx = await router.exactInputSingle({
                 tokenIn,
                 tokenOut,
                 fee,
-                recipient: await signer.getAddress(),
-                deadline,
+                recipient: wallet.address,
                 amountIn,
                 amountOutMinimum: 0,
                 sqrtPriceLimitX96: 0
-            }, { gasLimit: 300000, ...overrides });
+            }, { gasLimit: 350000, ...overrides });
             await tx.wait();
             return { hash: tx.hash };
-        } catch (e) { continue; }
+        } catch (e) {
+            console.error(`swapV3ExactInput fee=${fee} FAIL:`, e.reason || e.message);
+        }
     }
     return null;
 }
@@ -964,41 +1071,55 @@ ipcMain.handle('wallet:estimateGas', async (_, to, amountEth, networkKey = 'base
 });
 
 // =============================================================================
-// SWEEP TO USDC — Automates wrapping ETH and swapping ALL WETH to USDC
-// FIX: routerV2 chains (Optimism, Linea) now use V3 exactInputSingle.
-//      Was using swapExactTokensForTokens (V2 ABI) on V3-only SwapRouter02 — silent revert.
+// SWEEP TO USDC — Defensive rewrite. Key principles:
+//   1. Check gas BEFORE wrapping (don't burn gas on wrap if swap will fail)
+//   2. Swap existing WETH even if we can't wrap more
+//   3. Gas-starved chains bridge WETH directly to Base via Across
+//   4. All calls have explicit gasLimit (no estimateGas ENS issues)
 // =============================================================================
+
+// Minimum ETH needed for gas on each chain (wrap + approve + swap ≈ 3 txns)
+const MIN_GAS = {
+    base: ethers.utils.parseEther('0.0003'),      // ~$0.75
+    polygon: ethers.utils.parseEther('0.05'),      // POL, ~$0.01
+    arbitrum: ethers.utils.parseEther('0.0003'),   // ~$0.75
+    optimism: ethers.utils.parseEther('0.0008'),   // ~$2 (L1 data fees)
+    bsc: ethers.utils.parseUnits('0.00005', 18),     // BNB, ~$0.03 (BSC gas is ~1-3 gwei)
+    linea: ethers.utils.parseEther('0.0008')       // ~$2
+};
+
 ipcMain.handle('relay:sweepToUsdc', async (_, networkKey = 'base') => {
     if (!wallet) return { error: 'Wallet not unlocked' };
+    let step = 'init';
     try {
         const net = NETWORKS[networkKey];
         const prov = providers[networkKey];
         const signer = wallet.connect(prov);
 
+        // ── Step 0: Read balances ───────────────────────────────────────────
+        step = 'balances';
+        let ethBal = await prov.getBalance(wallet.address);
+        const wethC = new ethers.Contract(net.weth, WETH_ABI, signer);
+        let wethBal = await wethC.balanceOf(wallet.address);
+        const minGas = MIN_GAS[networkKey] || ethers.utils.parseEther('0.001');
+
+        // ── Polygon special path (QuickSwap V2 + POL native) ────────────────
         if (networkKey === 'polygon') {
             const overrides = await getPolygonGasOverrides(prov);
-            const wethContract = new ethers.Contract(net.weth, WETH_ABI, signer);
-            const wethBal = await wethContract.balanceOf(wallet.address);
-            
             const routerContract = new ethers.Contract(net.router, [
                 'function swapExactTokensForTokens(uint256,uint256,address[],address,uint256) returns (uint256[])',
                 'function swapExactETHForTokens(uint256,address[],address,uint256) payable returns (uint256[])'
             ], signer);
+            let swapCount = 0, lastHash = '', sweptWeth = '0', sweptPol = '0';
 
-            let swapCount = 0;
-            let lastHash = '';
-            let sweptWeth = '0';
-            let sweptPol = '0';
-
-            // 1. Swap WETH -> USDC.e
             if (wethBal.gt(0)) {
-                const approveTx = await wethContract.approve(net.router, wethBal, overrides);
+                step = 'poly.approve';
+                const approveTx = await wethC.approve(net.router, wethBal, { gasLimit: 60000, ...overrides });
                 await approveTx.wait();
-
+                step = 'poly.swap.weth';
                 const deadline = Math.floor(Date.now() / 1000) + 300;
-                const path = [net.weth, net.usdc];
                 const swapTx = await routerContract.swapExactTokensForTokens(
-                    wethBal, 0, path, wallet.address, deadline,
+                    wethBal, 0, [net.weth, net.usdc], wallet.address, deadline,
                     { gasLimit: 250000, ...overrides }
                 );
                 await swapTx.wait();
@@ -1007,17 +1128,14 @@ ipcMain.handle('relay:sweepToUsdc', async (_, networkKey = 'base') => {
                 swapCount++;
             }
 
-            // 2. Swap POL -> USDC.e leaving 2.0 POL gas buffer
-            const polBal = await prov.getBalance(wallet.address);
             const gasBuffer = ethers.utils.parseEther("2.0");
-            if (polBal.gt(gasBuffer)) {
-                const swapAmount = polBal.sub(gasBuffer);
+            if (ethBal.gt(gasBuffer)) {
+                const swapAmount = ethBal.sub(gasBuffer);
                 const wpolAddr = '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270';
-                const path = [wpolAddr, net.usdc];
+                step = 'poly.swap.pol';
                 const deadline = Math.floor(Date.now() / 1000) + 300;
-
                 const swapTx = await routerContract.swapExactETHForTokens(
-                    0, path, wallet.address, deadline,
+                    0, [wpolAddr, net.usdc], wallet.address, deadline,
                     { value: swapAmount, gasLimit: 250000, ...overrides }
                 );
                 await swapTx.wait();
@@ -1029,96 +1147,184 @@ ipcMain.handle('relay:sweepToUsdc', async (_, networkKey = 'base') => {
             if (swapCount > 0) {
                 let msg = '';
                 if (sweptWeth !== '0') msg += sweptWeth + ' WETH';
-                if (sweptPol !== '0') {
-                    if (msg) msg += ' and ';
-                    msg += sweptPol + ' POL';
-                }
-                return { hash: lastHash, amount: msg, network: net.name };
-            } else {
-                return { error: 'No WETH or extra POL (above 2.0 POL gas buffer) to sweep on ' + net.name };
+                if (sweptPol !== '0') { if (msg) msg += ' + '; msg += sweptPol + ' POL'; }
+                return { status: 'success', hash: lastHash, amount: msg, network: net.name };
             }
+            return { status: 'skipped', reason: 'No WETH or extra POL (above 2.0 POL gas buffer) on Polygon' };
         }
-        
-        const weth = new ethers.Contract(net.weth, WETH_ABI, signer);
-        const ethBal = await prov.getBalance(wallet.address);
-        
-        // Wrap ETH to WETH, leaving 0.001 buffer for future gas
-        const gasBuffer = ethers.utils.parseEther("0.001");
-        if (ethBal.gt(gasBuffer)) {
-            const wrapAmount = ethBal.sub(gasBuffer);
-            const wrapTx = await weth.deposit({ value: wrapAmount });
+
+        // ── Gas-starved chains: try unwrap for gas first, then bridge as fallback ─
+        // If ETH < minGas and we have WETH, unwrap a tiny bit for gas
+        if (ethBal.lt(minGas) && wethBal.gt(0) && networkKey !== 'base') {
+            // On L2s, unwrap costs almost nothing (~30k gas at <1 gwei)
+            // Try unwrapping enough WETH for gas before resorting to bridge
+            const unwrapGasNeeded = minGas.mul(4); // enough for unwrap + approve + swap + buffer
+            const unwrapAmt = unwrapGasNeeded.sub(ethBal);
+            const toUnwrap = unwrapAmt.gt(wethBal) ? wethBal : unwrapAmt;
+            
+            try {
+                step = 'unwrap.rescue';
+                console.log(networkKey, 'rescuing gas: unwrapping', ethers.utils.formatEther(toUnwrap), 'WETH for gas');
+                const unwrapTx = await wethC.withdraw(toUnwrap, { gasLimit: 60000 });
+                await unwrapTx.wait();
+                // Re-read balances — we now have gas!
+                ethBal = await prov.getBalance(wallet.address);
+                wethBal = await wethC.balanceOf(wallet.address);
+                console.log(networkKey, 'after rescue: ETH=', ethers.utils.formatEther(ethBal), 'WETH=', ethers.utils.formatEther(wethBal));
+                // Fall through to normal swap path below
+            } catch (unwrapErr) {
+                console.log(networkKey, 'unwrap rescue failed:', unwrapErr.reason || unwrapErr.message);
+                // Fall back to bridge path
+                const spokeAddr = SPOKE_POOLS[networkKey];
+                if (!spokeAddr) return { status: 'gas_needed', reason: 'No SpokePool for ' + networkKey + ' — cannot bridge' };
+
+                const bridgeMinGas = ethers.utils.parseEther('0.00005');
+                if (ethBal.lt(bridgeMinGas)) {
+                    return { status: 'gas_needed', reason: 'Not enough gas on ' + net.name + ' (' + ethers.utils.formatEther(ethBal) + ' ETH). Send ~0.001 ETH.' };
+                }
+
+                step = 'bridge.fallback';
+                const BASE_WETH = '0x4200000000000000000000000000000000000006';
+                const result = await acrossDepositWithQuote(signer, networkKey, 'base', net.weth, BASE_WETH, wethBal);
+                return { status: 'success', hash: result.hash, amount: ethers.utils.formatEther(wethBal) + ' WETH bridged', network: net.name };
+            } // end catch (unwrapErr)
+        } // end gas-starved check
+
+        // ── No gas, no WETH → nothing to do ─────────────────────────────────
+        if (ethBal.lt(minGas) && wethBal.eq(0)) {
+            return { status: 'skipped', reason: 'No ETH or WETH to sweep on ' + net.name };
+        }
+
+        // ── CRITICAL: If we have WETH but not enough ETH for gas, UNWRAP some ─
+        // This breaks the death spiral: instead of wrapping more ETH (which
+        // leaves no gas), we unwrap a tiny bit of WETH to get gas for the swap.
+        const gasNeeded = minGas.mul(3); // enough for approve + swap + buffer
+        // BSC uses legacy gas (no EIP-1559) — fetch real gas price
+        let bscGas = {};
+        if (networkKey === 'bsc') {
+            const gp = await prov.getGasPrice();
+            bscGas = { gasPrice: gp };
+            console.log('BSC gasPrice:', ethers.utils.formatUnits(gp, 'gwei'), 'gwei');
+        }
+        if (wethBal.gt(0) && ethBal.lt(gasNeeded)) {
+            const unwrapAmount = gasNeeded.sub(ethBal); // just enough to top up
+            // Don't unwrap more than we have
+            const toUnwrap = unwrapAmount.gt(wethBal) ? wethBal : unwrapAmount;
+            step = 'unwrap.gas';
+            console.log(networkKey, 'unwrapping', ethers.utils.formatEther(toUnwrap), 'for gas');
+            const unwrapTx = await wethC.withdraw(toUnwrap, { gasLimit: 60000, ...bscGas });
+            await unwrapTx.wait();
+        }
+        // If WETH is 0, wrap ETH (but only if plenty of ETH available)
+        else if (wethBal.eq(0) && ethBal.gt(gasNeeded.mul(2))) {
+            const wrapAmount = ethBal.sub(gasNeeded);
+            step = 'wrap';
+            const wrapTx = await wethC.deposit({ value: wrapAmount, gasLimit: 60000 });
             await wrapTx.wait();
         }
 
-        const wethBal = await weth.balanceOf(wallet.address);
-        if (wethBal.gt(0)) {
-            if (net.relay && net.relay !== '') {
-                // Custom relay contract path (Base)
-                const deadline = Math.floor(Date.now() / 1000) + 300;
-                let minOut;
-                try {
-                    const routerContract = new ethers.Contract(net.router, [
-                        'function getAmountsOut(uint256 amountIn, address[] path) external view returns (uint256[] memory)'
+        // Re-read balances after potential wrap/unwrap
+        step = 'check.weth';
+        let finalWeth = await wethC.balanceOf(wallet.address);
+
+        // ── Non-Base: If USDC is stuck (from previous local swap), bridge it directly to Base ──
+        if (networkKey !== 'base' && finalWeth.eq(0)) {
+            const usdcC = new ethers.Contract(net.usdc, ['function balanceOf(address) view returns (uint256)', 'function approve(address,uint256) returns (bool)', 'function decimals() view returns (uint8)'], signer);
+            const stuckUsdc = await usdcC.balanceOf(wallet.address);
+            if (stuckUsdc.gt(0)) {
+                const spokeAddr = SPOKE_POOLS[networkKey];
+                if (!spokeAddr) {
+                    console.log(networkKey, 'has stuck USDC but no SpokePool');
+                } else if (networkKey === 'bsc') {
+                    // BSC USDC is 18 decimals (Binance-pegged) — swap back to WBNB first, then bridge
+                    step = 'bsc.usdc2wbnb.approve';
+                    console.log('bsc: recovering', ethers.utils.formatEther(stuckUsdc), 'USDC → WBNB');
+                    const appTx = await usdcC.approve(net.router, stuckUsdc, { gasLimit: 60000, ...bscGas });
+                    await appTx.wait();
+                    step = 'bsc.usdc2wbnb.swap';
+                    const r = new ethers.Contract(net.router, [
+                        'function swapExactTokensForTokens(uint256,uint256,address[],address,uint256) returns (uint256[])'
                     ], signer);
-                    const amounts = await routerContract.getAmountsOut(wethBal, [net.weth, net.usdc]);
-                    minOut = amounts[amounts.length - 1].mul(98).div(100);
-                } catch (err) {
-                    minOut = wethBal.mul(1500).div(ethers.BigNumber.from("1000000000000"));
+                    const dl = Math.floor(Date.now() / 1000) + 300;
+                    const swTx = await r.swapExactTokensForTokens(
+                        stuckUsdc, 0, [net.usdc, net.weth], wallet.address, dl,
+                        { gasLimit: 300000, ...bscGas }
+                    );
+                    await swTx.wait();
+                    console.log('bsc: USDC → WBNB recovery done');
+                    finalWeth = await wethC.balanceOf(wallet.address);
+                } else {
+                    // OP, Linea, Arbitrum: bridge USDC directly to Base USDC via Across API
+                    const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913';
+                    step = 'usdc.bridge';
+                    console.log(networkKey, 'bridging stuck', ethers.utils.formatUnits(stuckUsdc, 6), 'USDC to Base');
+                    const result = await acrossDepositWithQuote(signer, networkKey, 'base', net.usdc, BASE_USDC, stuckUsdc);
+                    return { status: 'success', hash: result.hash, amount: ethers.utils.formatUnits(stuckUsdc, 6) + ' USDC bridging to Base', network: net.name };
                 }
-                const approveTx = await weth.approve(net.relay, wethBal);
-                await approveTx.wait();
-                const relay = new ethers.Contract(net.relay, RELAY_V3_ABI, signer);
-                const swapTx = await relay.swap(
-                    net.weth, net.usdc, wethBal, minOut, [net.pool], deadline,
-                    { gasLimit: 500000 }
-                );
-                await swapTx.wait();
-                return { hash: swapTx.hash, amount: ethers.utils.formatEther(wethBal), network: net.name };
-            } else if (net.routerV2) {
-                // FIX: SwapRouter02 chains (Optimism, Linea) — must use V3 exactInputSingle
-                const approveTx = await weth.approve(net.router, wethBal);
-                await approveTx.wait();
-                const result = await swapV3ExactInput(signer, net.router, net.weth, net.usdc, wethBal);
-                if (!result) return { error: 'WETH→USDC swap failed on ' + net.name + ' — no liquid pool found at any fee tier' };
-                return { hash: result.hash, amount: ethers.utils.formatEther(wethBal), network: net.name };
-            } else {
-                // V2-style router fallback (Arbitrum, BSC)
-                const deadline = Math.floor(Date.now() / 1000) + 300;
-                let minOut;
-                try {
-                    const routerContract = new ethers.Contract(net.router, [
-                        'function getAmountsOut(uint256 amountIn, address[] path) external view returns (uint256[] memory)'
-                    ], signer);
-                    const amounts = await routerContract.getAmountsOut(wethBal, [net.weth, net.usdc]);
-                    minOut = amounts[amounts.length - 1].mul(98).div(100);
-                } catch (err) {
-                    if (networkKey === 'bsc') {
-                        minOut = wethBal.mul(300);
-                    } else {
-                        minOut = wethBal.mul(1500).div(ethers.BigNumber.from("1000000000000"));
-                    }
-                }
-                const approveTx = await weth.approve(net.router, wethBal);
-                await approveTx.wait();
-                const router = new ethers.Contract(net.router, [
-                    'function swapExactTokensForTokens(uint256,uint256,address[],address,uint256) returns (uint256[])'
-                ], signer);
-                const swapTx = await router.swapExactTokensForTokens(
-                    wethBal, minOut, [net.weth, net.usdc], wallet.address, deadline,
-                    { gasLimit: 500000 }
-                );
-                await swapTx.wait();
-                return { hash: swapTx.hash, amount: ethers.utils.formatEther(wethBal), network: net.name };
             }
+        }
+
+        if (finalWeth.eq(0)) {
+            return { status: 'skipped', reason: 'No WETH to swap on ' + net.name + ' (ETH too low to wrap safely)' };
+        }
+
+        // ── SWAP: Route through the correct DEX ─────────────────────────────
+        if (networkKey === 'base') {
+            // Direct Uniswap V3 swap on Base — raw calldata to avoid any ABI issues
+            const BASE_SWAP_ROUTER = '0x2626664c2603336E57B271c5C0b26F421741e481';
+            step = 'base.approve';
+            const approveTx = await wethC.approve(BASE_SWAP_ROUTER, finalWeth, { gasLimit: 60000 });
+            await approveTx.wait();
+
+            step = 'base.swap';
+            // Manually encode exactInputSingle calldata — exactly as eth_call simulation
+            const swapIface = new ethers.utils.Interface([
+                'function exactInputSingle((address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external payable returns (uint256)'
+            ]);
+            const calldata = swapIface.encodeFunctionData('exactInputSingle', [{
+                tokenIn: net.weth,
+                tokenOut: net.usdc,
+                fee: 500,
+                recipient: wallet.address,
+                amountIn: finalWeth,
+                amountOutMinimum: 0,
+                sqrtPriceLimitX96: 0
+            }]);
+
+            // Simulate first to confirm it will work
+            const simResult = await prov.call({ from: wallet.address, to: BASE_SWAP_ROUTER, data: calldata });
+            const usdcOut = ethers.utils.defaultAbiCoder.decode(['uint256'], simResult)[0];
+            console.log('Base swap simulation OK. Expected USDC:', ethers.utils.formatUnits(usdcOut, 6));
+
+            // Send raw transaction — identical to simulation
+            const tx = await signer.sendTransaction({
+                to: BASE_SWAP_ROUTER,
+                data: calldata,
+                gasLimit: 350000
+            });
+            const receipt = await tx.wait();
+            if (receipt.status === 0) return { error: '[base.swap] Transaction reverted on-chain' };
+            return { status: 'success', hash: tx.hash, amount: ethers.utils.formatEther(finalWeth), network: net.name };
+
         } else {
-            return { error: 'No ETH or WETH to sweep on ' + net.name };
+            // ALL non-Base chains: bridge WETH to Base via Across
+            // WETH arrives as WETH on Base, then Base sweep converts to USDC
+            const spokeAddr = SPOKE_POOLS[networkKey];
+            if (!spokeAddr) return { error: 'No SpokePool configured for ' + net.name };
+
+            step = 'bridge';
+            const BASE_WETH = '0x4200000000000000000000000000000000000006';
+            console.log(networkKey, 'bridging', ethers.utils.formatEther(finalWeth), 'WETH to Base via Across API');
+            const result = await acrossDepositWithQuote(signer, networkKey, 'base', net.weth, BASE_WETH, finalWeth, bscGas);
+            return { status: 'success', hash: result.hash, amount: ethers.utils.formatEther(finalWeth) + ' WETH bridging to Base', network: net.name };
         }
     } catch (e) {
         let msg = e.reason || e.message || 'Sweep failed';
         if (e.error && e.error.message) msg = e.error.message;
-        return { error: msg };
+        return { error: '[' + (step||'?') + '] ' + msg };
     }
 });
+
 
 // =============================================================================
 // ERC-20 ABI for bridge approvals
@@ -1226,36 +1432,9 @@ ipcMain.handle('relay:customBridge', async (_, fromKey, toKey, tokenKey, amountS
 
             // Step 3: Bridge USDC → destination via Across
             const dstUsdc = toKey === 'polygon' ? '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359' : dstNet.usdc;
-            // FIX: use unified SPOKE_POOLS constant
-            const spokePoolAddr = SPOKE_POOLS[fromKey];
-
-            let quote;
-            try {
-                quote = await new Promise((resolve, reject) => {
-                    const url = `https://across.to/api/suggested-fees?inputToken=${srcUsdc}&outputToken=${dstUsdc}&originChainId=${srcChainId}&destinationChainId=${dstChainId}&amount=${usdcReceived}`;
-                    https.get(url, (res) => { let d=''; res.on('data',c=>d+=c); res.on('end',()=>{ try{ const j=JSON.parse(d); j.error?reject(new Error(j.message)):resolve(j); }catch(e){reject(e);} }); }).on('error',reject);
-                });
-            } catch (e) {
-                quote = { spokePoolAddress: spokePoolAddr, outputAmount: usdcReceived.mul(99).div(100).toString(), quoteTimestamp: Math.floor(Date.now()/1000), exclusiveRelayer: '0x0000000000000000000000000000000000000000', exclusivityDeadline: 0, fillDeadline: Math.floor(Date.now()/1000)+7200 };
-            }
-
-            const activeSpokePool = quote.spokePoolAddress || spokePoolAddr;
-            const usdcContract = new ethers.Contract(srcUsdc, ERC20_ABI_BRIDGE, signer);
-            const approveSpoke = await usdcContract.approve(activeSpokePool, usdcReceived, { gasLimit: 80000, ...overrides });
-            await approveSpoke.wait();
-
-            const spokePool = new ethers.Contract(activeSpokePool, SPOKE_POOL_ABI, signer);
-            const bridgeTx = await spokePool.depositV3(
-                wallet.address, wallet.address, srcUsdc, dstUsdc,
-                usdcReceived, quote.outputAmount, dstChainId,
-                quote.exclusiveRelayer, quote.timestamp || quote.quoteTimestamp,
-                quote.fillDeadline, quote.exclusivityDeadline || 0, '0x',
-                { gasLimit: 300000, ...overrides }
-            );
-            await bridgeTx.wait();
-
+            const result = await acrossDepositWithQuote(signer, fromKey, toKey, srcUsdc, dstUsdc, usdcReceived, overrides);
             const usdcOut = parseFloat(ethers.utils.formatUnits(usdcReceived, 6)).toFixed(2);
-            return { hash: bridgeTx.hash, amount: usdcOut, token: 'USDC' };
+            return { hash: result.hash, amount: usdcOut, token: 'USDC' };
         }
 
         // ── USDC / WETH paths ──
@@ -1301,37 +1480,15 @@ ipcMain.handle('relay:customBridge', async (_, fromKey, toKey, tokenKey, amountS
             return { hash: tx.hash, amount: amountStr, token: 'USDC' };
         }
         
-        // FIX: use unified SPOKE_POOLS constant (was duplicated inline with stale addresses)
-        const spokePoolAddr = SPOKE_POOLS[fromKey];
-
-        let quote;
-        try {
-            quote = await new Promise((resolve, reject) => {
-                const url = `https://across.to/api/suggested-fees?inputToken=${inputToken}&outputToken=${outputToken}&originChainId=${srcChainId}&destinationChainId=${dstChainId}&amount=${amountUnits}`;
-                https.get(url, (res) => { let d=''; res.on('data',c=>d+=c); res.on('end',()=>{ try{ const j=JSON.parse(d); j.error?reject(new Error(j.message)):resolve(j); }catch(e){reject(e);} }); }).on('error',reject);
-            });
-        } catch (e) {
-            quote = { spokePoolAddress: spokePoolAddr, outputAmount: amountUnits.mul(99).div(100).toString(), quoteTimestamp: Math.floor(Date.now()/1000), exclusiveRelayer: '0x0000000000000000000000000000000000000000', exclusivityDeadline: 0, fillDeadline: Math.floor(Date.now()/1000)+7200 };
-        }
-
-        const activeSpokePool = quote.spokePoolAddress || spokePoolAddr;
-        const approveSpoke = await tokenContract.approve(activeSpokePool, amountUnits, { gasLimit: 80000, ...overrides });
-        await approveSpoke.wait();
-
-        const spokePool = new ethers.Contract(activeSpokePool, SPOKE_POOL_ABI, signer);
-        const bridgeTx = await spokePool.depositV3(
-            wallet.address, wallet.address, inputToken, outputToken,
-            amountUnits, quote.outputAmount, dstChainId,
-            quote.exclusiveRelayer, quote.timestamp || quote.quoteTimestamp,
-            quote.fillDeadline, quote.exclusivityDeadline || 0, '0x',
-            { gasLimit: 300000, ...overrides }
-        );
-        await bridgeTx.wait();
-
-        return { hash: bridgeTx.hash, amount: amountStr, token: tokenKey.toUpperCase() };
+        // Use centralized Across helper with proper API params
+        const result = await acrossDepositWithQuote(signer, fromKey, toKey, inputToken, outputToken, amountUnits, overrides);
+        return { hash: result.hash, amount: amountStr, token: tokenKey.toUpperCase() };
     } catch (e) {
         let msg = e.reason || e.message || 'Bridge failed';
         if (e.error && e.error.message) msg = e.error.message;
         return { error: msg };
     }
 });
+
+
+
