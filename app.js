@@ -1205,7 +1205,7 @@ async function loadAddressBook() {
         if (book && book.length > 0) {
             book.forEach(item => {
                 const opt = document.createElement('option');
-                opt.value = item.address;
+                opt.value = item.label;
                 opt.textContent = item.label;
                 opt.title = `${item.label}: ${item.address}`;
                 dropdown.appendChild(opt);
@@ -1307,13 +1307,21 @@ async function deleteAddressLabelFromModal(label, address) {
     }
 }
 
-function selectSavedAddress() {
+async function selectSavedAddress() {
     const dropdown = document.getElementById('addressBookDropdown');
     if (!dropdown) return;
-    const val = dropdown.value;
-    if (val) {
-        document.getElementById('sendTo').value = val;
-        estimateGas(); // trigger gas estimation automatically
+    const label = dropdown.value;
+    if (label) {
+        try {
+            const book = await window.wallet.getAddressBook() || [];
+            const item = book.find(i => i.label === label);
+            if (item) {
+                document.getElementById('sendTo').value = item.address;
+                estimateGas(); // trigger gas estimation automatically
+            }
+        } catch (e) {
+            console.error('Failed to lookup address by label:', e);
+        }
     }
 }
 
