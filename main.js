@@ -949,7 +949,7 @@ ipcMain.handle('wallet:getAddressBook', () => {
     }
 });
 
-ipcMain.handle('wallet:saveAddress', (_, label, address) => {
+ipcMain.handle('wallet:saveAddress', (_, label, address, network) => {
     try {
         const store = loadStore() || {};
         if (!store.addressBook) store.addressBook = [];
@@ -964,13 +964,15 @@ ipcMain.handle('wallet:saveAddress', (_, label, address) => {
         // Uniqueness check by label (case-insensitive)
         const idx = store.addressBook.findIndex(item => item.label.toLowerCase() === label.toLowerCase().trim());
         if (idx !== -1) {
-            // Update the address for this label
+            // Update the address and network for this label
             store.addressBook[idx].address = address;
+            if (network) store.addressBook[idx].network = network.toLowerCase().trim();
         } else {
             // Add a new entry (allows multiple names/labels for the same address)
             store.addressBook.push({
                 label: label.trim(),
-                address: address
+                address: address,
+                network: network ? network.toLowerCase().trim() : undefined
             });
         }
         

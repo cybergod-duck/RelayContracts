@@ -1199,14 +1199,31 @@ async function loadAddressBook() {
         const dropdown = document.getElementById('addressBookDropdown');
         if (!dropdown) return;
         
+        const selectedNetwork = document.getElementById('sendNetwork').value;
+        
         // Keep the first option ("Addresses 📖")
         dropdown.innerHTML = '<option value="">Addresses 📖</option>';
         
         if (book && book.length > 0) {
-            book.forEach(item => {
+            // Filter: show if network matches OR if no network exists but label doesn't mention other networks
+            const filtered = book.filter(item => {
+                if (item.network) {
+                    return item.network.toLowerCase() === selectedNetwork.toLowerCase();
+                }
+                // Fallback for legacy items: hide if label explicitly mentions other networks
+                const labelLower = item.label.toLowerCase();
+                const networksList = ['base', 'polygon', 'arbitrum', 'optimism', 'bsc', 'linea'];
+                const mentionsOther = networksList.some(net => net !== selectedNetwork && labelLower.includes(net));
+                if (mentionsOther) {
+                    return false;
+                }
+                return true;
+            });
+            
+            filtered.forEach(item => {
                 const opt = document.createElement('option');
                 opt.value = item.label;
-                opt.textContent = item.label;
+                opt.textContent = `${item.label} (${item.address.slice(0, 6)}...${item.address.slice(-4)})`;
                 opt.title = `${item.label}: ${item.address}`;
                 dropdown.appendChild(opt);
             });
@@ -1268,6 +1285,7 @@ function closeSaveAddressModal() {
 async function submitSaveAddressLabel() {
     const address = document.getElementById('saveAddressTarget').textContent.trim();
     const label = document.getElementById('saveAddressLabelInput').value.trim();
+    const network = document.getElementById('sendNetwork').value;
     const errEl = document.getElementById('saveAddressError');
     
     if (!label) {
@@ -1276,7 +1294,7 @@ async function submitSaveAddressLabel() {
     }
     
     try {
-        const res = await window.wallet.saveAddress(label, address);
+        const res = await window.wallet.saveAddress(label, address, network);
         if (res.error) {
             errEl.textContent = res.error;
         } else {

@@ -1078,7 +1078,7 @@
             <div style="display:flex;flex-direction:column;gap:10px;justify-content:center;flex:1;padding-top:8px;">
               <div style="display:flex;align-items:center;justify-content:space-between;">
                 <span style="font-size:13px;color:var(--text);font-weight:600;">Network:</span>
-                <select id="sendNetwork" onchange="estimateGas(); updateQrCode(); setMaxSendLabel();" style="background:rgba(0,0,0,0.5);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:12px;padding:4px 8px;outline:none;font-family:inherit;cursor:pointer;">
+                <select id="sendNetwork" onchange="estimateGas(); updateQrCode(); setMaxSendLabel(); loadAddressBook();" style="background:rgba(0,0,0,0.5);color:var(--text);border:1px solid var(--border);border-radius:6px;font-size:12px;padding:4px 8px;outline:none;font-family:inherit;cursor:pointer;">
                   <option value="base">Base</option>
                   <option value="polygon">Polygon</option>
                   <option value="arbitrum">Arbitrum</option>
