@@ -323,6 +323,33 @@ async function refreshBalance() {
         document.getElementById('wethLine').innerHTML = realWeth.toFixed(6) + ' WETH <span class="dim"> - $' + (realWeth * currentEthPrice).toFixed(2) + '</span>';
         document.getElementById('usdcLine').textContent = totalUsdc.toFixed(2) + ' USDC';
 
+        // Render dynamic network breakdown under USDC Card
+        const breakdownEl = document.getElementById('usdcBreakdown');
+        if (breakdownEl) {
+            let html = '';
+            const nets = [
+                { key: 'base', name: 'Base', val: baseUsdc, color: '#0052ff' },
+                { key: 'polygon', name: 'Polygon', val: polyUsdc, color: '#8247e5' },
+                { key: 'arbitrum', name: 'Arbitrum', val: arbUsdc, color: '#28a0f0' },
+                { key: 'optimism', name: 'Optimism', val: opUsdc, color: '#ff0420' },
+                { key: 'bsc', name: 'BSC', val: bscUsdc, color: '#f3ba2f' },
+                { key: 'linea', name: 'Linea', val: lineaUsdc, color: '#61250b' }
+            ];
+            nets.forEach(n => {
+                if (n.val > 0) {
+                    html += `
+                    <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text2);">
+                        <span style="display:flex; align-items:center; gap:6px;">
+                            <span style="width:6px; height:6px; border-radius:50%; background:${n.color}; display:inline-block;"></span>
+                            ${n.name}
+                        </span>
+                        <span style="font-weight:600; color:var(--text);">${n.val.toFixed(2)} USDC</span>
+                    </div>`;
+                }
+            });
+            breakdownEl.innerHTML = html || '<div style="font-size:10px; color:var(--dim); text-align:center;">No USDC balances</div>';
+        }
+
         // Render individual breakdown on Networks tab
         document.getElementById('netBaseEth').textContent = baseEth.toFixed(6) + ' ETH';
         document.getElementById('netBaseWeth').textContent = baseWeth.toFixed(6) + ' WETH';
@@ -1195,44 +1222,88 @@ async function saveCurrentAddress() {
     }
 
     try {
+        document.getElementById('saveAddressTarget').textContent = address;
+        document.getElementById('saveAddressLabelInput').value = '';
+        document.getElementById('saveAddressError').textContent = '';
+        
         const book = await window.wallet.getAddressBook() || [];
-        const existing = book.filter(item => item.address.toLowerCase() === address.toLowerCase());
+        renderSaveAddressModalLabels(address, book);
         
-        let msg = 'Enter a label for this address (e.g., USDC KRAK WALLET):';
-        if (existing.length > 0) {
-            const labels = existing.map(item => `"${item.label}"`).join(', ');
-            msg = `This address is already saved as: ${labels}.\n\nEnter a NEW label to add, or enter an existing label to update it.\n(Type "DELETE" to clear all saved names for this address)`;
-        }
-        
-        const label = prompt(msg);
-        if (!label) return; // Cancelled
-        
-        const cleanLabel = label.trim();
-        if (cleanLabel.toUpperCase() === 'DELETE') {
-            const confirmDelete = confirm(`Are you sure you want to delete all labels for address ${address.slice(0, 10)}...?`);
-            if (confirmDelete) {
-                const res = await window.wallet.deleteAddress(address);
-                if (res.error) {
-                    toast(res.error, 'error');
-                } else {
-                    toast('Address labels removed', 'success');
-                    await loadAddressBook();
-                    document.getElementById('addressBookDropdown').value = '';
-                }
-            }
-            return;
-        }
-        
-        const res = await window.wallet.saveAddress(cleanLabel, address);
+        document.getElementById('saveAddressModal').classList.remove('hidden');
+        document.getElementById('saveAddressLabelInput').focus();
+    } catch (e) {
+        toast('Failed to load address info: ' + e.message, 'error');
+    }
+}
+
+function renderSaveAddressModalLabels(address, book) {
+    const existing = book.filter(item => item.address.toLowerCase() === address.toLowerCase());
+    const container = document.getElementById('saveAddressExistingContainer');
+    const list = document.getElementById('saveAddressExistingLabels');
+    
+    if (existing.length === 0) {
+        container.style.display = 'none';
+        list.innerHTML = '';
+        return;
+    }
+    
+    container.style.display = 'block';
+    list.innerHTML = existing.map(item => {
+        // Safe string escaping for label inside onclick/params
+        const escapedLabel = item.label.replace(/'/g, "\\'");
+        const escapedAddress = item.address.replace(/'/g, "\\'");
+        return `
+        <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(255,255,255,0.03); padding:6px 10px; border-radius:6px; border:1px solid rgba(255,255,255,0.05); margin-bottom:4px;">
+            <span style="font-size:12px; color:var(--text2); cursor:pointer; flex:1;" onclick="document.getElementById('saveAddressLabelInput').value = '${escapedLabel}'" title="Click to edit">${item.label}</span>
+            <button onclick="deleteAddressLabelFromModal('${escapedLabel}', '${escapedAddress}')" style="background:none; border:none; color:var(--red); cursor:pointer; font-size:14px; padding:2px 6px; font-weight:bold; transition:all 0.2s;" onmouseover="this.style.color='#ff3333'" onmouseout="this.style.color='var(--red)'" title="Delete label">🗑️</button>
+        </div>
+        `;
+    }).join('');
+}
+
+function closeSaveAddressModal() {
+    document.getElementById('saveAddressModal').classList.add('hidden');
+}
+
+async function submitSaveAddressLabel() {
+    const address = document.getElementById('saveAddressTarget').textContent.trim();
+    const label = document.getElementById('saveAddressLabelInput').value.trim();
+    const errEl = document.getElementById('saveAddressError');
+    
+    if (!label) {
+        errEl.textContent = 'Label name cannot be empty';
+        return;
+    }
+    
+    try {
+        const res = await window.wallet.saveAddress(label, address);
         if (res.error) {
-            toast(res.error, 'error');
+            errEl.textContent = res.error;
         } else {
-            toast('Address saved to book!', 'success');
+            toast('Address saved successfully!', 'success');
+            await loadAddressBook();
+            closeSaveAddressModal();
+        }
+    } catch (e) {
+        errEl.textContent = e.message;
+    }
+}
+
+async function deleteAddressLabelFromModal(label, address) {
+    const errEl = document.getElementById('saveAddressError');
+    try {
+        errEl.textContent = '';
+        const res = await window.wallet.deleteAddressLabel(label);
+        if (res.error) {
+            errEl.textContent = res.error;
+        } else {
+            toast('Label deleted', 'success');
+            const book = await window.wallet.getAddressBook() || [];
+            renderSaveAddressModalLabels(address, book);
             await loadAddressBook();
         }
-        
     } catch (e) {
-        toast('Failed to save address: ' + e.message, 'error');
+        errEl.textContent = e.message;
     }
 }
 

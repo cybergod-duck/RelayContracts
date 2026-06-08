@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('wallet', {
     getAddressBook: () => ipcRenderer.invoke('wallet:getAddressBook'),
     saveAddress: (label, address) => ipcRenderer.invoke('wallet:saveAddress', label, address),
     deleteAddress: (address) => ipcRenderer.invoke('wallet:deleteAddress', address),
+    deleteAddressLabel: (label) => ipcRenderer.invoke('wallet:deleteAddressLabel', label),
     getAccounts: () => ipcRenderer.invoke('wallet:getAccounts'),
     addAccount: (label, privateKey) => ipcRenderer.invoke('wallet:addAccount', label, privateKey),
     switchAccount: (address) => ipcRenderer.invoke('wallet:switchAccount', address),

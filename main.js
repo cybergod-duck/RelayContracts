@@ -35,7 +35,7 @@ const NETWORKS = {
         name: 'Polygon',
         rpc: 'https://polygon.drpc.org',
         weth: '0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619',
-        usdc: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+        usdc: '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
         relay: '',
         proxy: '',
         pool: '0x6e7a5FAFcec6BB1e78bAE2A1F0B612012BF14827',
@@ -994,6 +994,25 @@ ipcMain.handle('wallet:deleteAddress', (_, address) => {
         
         // Delete all entries matching this address
         store.addressBook = store.addressBook.filter(item => item.address.toLowerCase() !== address.toLowerCase());
+        saveStore(store);
+        return { ok: true };
+    } catch (e) {
+        return { error: e.message };
+    }
+});
+
+ipcMain.handle('wallet:deleteAddressLabel', (_, label) => {
+    try {
+        const store = loadStore() || {};
+        if (!store.addressBook) return { ok: true };
+        if (!Array.isArray(store.addressBook)) {
+            store.addressBook = Object.keys(store.addressBook).map(addr => ({
+                address: addr,
+                label: store.addressBook[addr]
+            }));
+        }
+        
+        store.addressBook = store.addressBook.filter(item => item.label.toLowerCase() !== label.toLowerCase().trim());
         saveStore(store);
         return { ok: true };
     } catch (e) {
