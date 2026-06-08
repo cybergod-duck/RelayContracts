@@ -1195,53 +1195,45 @@ async function saveCurrentAddress() {
     }
 
     try {
-        const book = await window.wallet.getAddressBook();
-        const existing = book.find(item => item.address.toLowerCase() === address.toLowerCase());
+        const book = await window.wallet.getAddressBook() || [];
+        const existing = book.filter(item => item.address.toLowerCase() === address.toLowerCase());
         
-        if (existing) {
-            const action = confirm(`"${existing.label}" is already saved for this address.\n\nClick "OK" to RENAME/EDIT this address label.\nClick "Cancel" to delete/remove it.`);
-            if (action) {
-                const newLabel = prompt(`Enter a new label for this address (current: "${existing.label}"):`, existing.label);
-                if (newLabel && newLabel.trim()) {
-                    const res = await window.wallet.saveAddress(newLabel.trim(), address);
-                    if (res.error) {
-                        toast(res.error, 'error');
-                    } else {
-                        toast('Label updated successfully!', 'success');
-                        await loadAddressBook();
-                    }
-                }
-                return;
-            } else {
-                const confirmDelete = confirm(`Are you sure you want to delete "${existing.label}" from your address book?`);
-                if (confirmDelete) {
-                    const res = await window.wallet.deleteAddress(address);
-                    if (res.error) {
-                        toast(res.error, 'error');
-                    } else {
-                        toast('Address removed from book', 'success');
-                        await loadAddressBook();
-                        document.getElementById('addressBookDropdown').value = '';
-                    }
-                    return;
-                }
-                return;
-            }
+        let msg = 'Enter a label for this address (e.g., USDC KRAK WALLET):';
+        if (existing.length > 0) {
+            const labels = existing.map(item => `"${item.label}"`).join(', ');
+            msg = `This address is already saved as: ${labels}.\n\nEnter a NEW label to add, or enter an existing label to update it.\n(Type "DELETE" to clear all saved names for this address)`;
         }
-    } catch (e) { console.error(e); }
-    
-    const label = prompt('Enter a label for this address (e.g., Hot Wallet, Exchange):');
-    if (!label) return; // cancelled or empty
-    
-    try {
-        const res = await window.wallet.saveAddress(label.trim(), address);
+        
+        const label = prompt(msg);
+        if (!label) return; // Cancelled
+        
+        const cleanLabel = label.trim();
+        if (cleanLabel.toUpperCase() === 'DELETE') {
+            const confirmDelete = confirm(`Are you sure you want to delete all labels for address ${address.slice(0, 10)}...?`);
+            if (confirmDelete) {
+                const res = await window.wallet.deleteAddress(address);
+                if (res.error) {
+                    toast(res.error, 'error');
+                } else {
+                    toast('Address labels removed', 'success');
+                    await loadAddressBook();
+                    document.getElementById('addressBookDropdown').value = '';
+                }
+            }
+            return;
+        }
+        
+        const res = await window.wallet.saveAddress(cleanLabel, address);
         if (res.error) {
             toast(res.error, 'error');
         } else {
             toast('Address saved to book!', 'success');
             await loadAddressBook();
         }
-    } catch (e) { toast('Failed to save address: ' + e.message, 'error'); }
+        
+    } catch (e) {
+        toast('Failed to save address: ' + e.message, 'error');
+    }
 }
 
 function selectSavedAddress() {

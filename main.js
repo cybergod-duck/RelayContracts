@@ -932,17 +932,48 @@ ipcMain.handle('wallet:lineaAddresses', () => {
 ipcMain.handle('wallet:getAddressBook', () => {
     try {
         const store = loadStore();
-        return (store && store.addressBook) ? store.addressBook : {};
+        if (!store) return [];
+        // Migration: If legacy object map exists, convert it to an array
+        if (store.addressBook && !Array.isArray(store.addressBook)) {
+            const arr = Object.keys(store.addressBook).map(addr => ({
+                address: addr,
+                label: store.addressBook[addr]
+            }));
+            store.addressBook = arr;
+            saveStore(store);
+        }
+        return store.addressBook || [];
     } catch (e) {
-        return {};
+        console.error('Error in getAddressBook:', e);
+        return [];
     }
 });
 
 ipcMain.handle('wallet:saveAddress', (_, label, address) => {
     try {
         const store = loadStore() || {};
-        if (!store.addressBook) store.addressBook = {};
-        store.addressBook[address] = label;
+        if (!store.addressBook) store.addressBook = [];
+        // Migration: convert legacy object map to array
+        if (!Array.isArray(store.addressBook)) {
+            store.addressBook = Object.keys(store.addressBook).map(addr => ({
+                address: addr,
+                label: store.addressBook[addr]
+            }));
+        }
+        
+        // Uniqueness check by label (case-insensitive)
+        const idx = store.addressBook.findIndex(item => item.label.toLowerCase() === label.toLowerCase().trim());
+        if (idx !== -1) {
+            // Update the address for this label
+            store.addressBook[idx].address = address;
+        } else {
+            // Add a new entry (allows multiple names/labels for the same address)
+            store.addressBook.push({
+                label: label.trim(),
+                address: address
+            });
+        }
+        
         saveStore(store);
         return { ok: true };
     } catch (e) {
@@ -953,10 +984,17 @@ ipcMain.handle('wallet:saveAddress', (_, label, address) => {
 ipcMain.handle('wallet:deleteAddress', (_, address) => {
     try {
         const store = loadStore() || {};
-        if (store.addressBook && store.addressBook[address]) {
-            delete store.addressBook[address];
-            saveStore(store);
+        if (!store.addressBook) return { ok: true };
+        if (!Array.isArray(store.addressBook)) {
+            store.addressBook = Object.keys(store.addressBook).map(addr => ({
+                address: addr,
+                label: store.addressBook[addr]
+            }));
         }
+        
+        // Delete all entries matching this address
+        store.addressBook = store.addressBook.filter(item => item.address.toLowerCase() !== address.toLowerCase());
+        saveStore(store);
         return { ok: true };
     } catch (e) {
         return { error: e.message };
