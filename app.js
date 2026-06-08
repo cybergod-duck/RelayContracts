@@ -1199,15 +1199,31 @@ async function saveCurrentAddress() {
         const existing = book.find(item => item.address.toLowerCase() === address.toLowerCase());
         
         if (existing) {
-            const confirmDelete = confirm(`"${existing.label}" is already saved for this address. Do you want to delete/remove it from your address book?`);
-            if (confirmDelete) {
-                const res = await window.wallet.deleteAddress(address);
-                if (res.error) {
-                    toast(res.error, 'error');
-                } else {
-                    toast('Address removed from book', 'success');
-                    await loadAddressBook();
-                    document.getElementById('addressBookDropdown').value = '';
+            const action = confirm(`"${existing.label}" is already saved for this address.\n\nClick "OK" to RENAME/EDIT this address label.\nClick "Cancel" to delete/remove it.`);
+            if (action) {
+                const newLabel = prompt(`Enter a new label for this address (current: "${existing.label}"):`, existing.label);
+                if (newLabel && newLabel.trim()) {
+                    const res = await window.wallet.saveAddress(newLabel.trim(), address);
+                    if (res.error) {
+                        toast(res.error, 'error');
+                    } else {
+                        toast('Label updated successfully!', 'success');
+                        await loadAddressBook();
+                    }
+                }
+                return;
+            } else {
+                const confirmDelete = confirm(`Are you sure you want to delete "${existing.label}" from your address book?`);
+                if (confirmDelete) {
+                    const res = await window.wallet.deleteAddress(address);
+                    if (res.error) {
+                        toast(res.error, 'error');
+                    } else {
+                        toast('Address removed from book', 'success');
+                        await loadAddressBook();
+                        document.getElementById('addressBookDropdown').value = '';
+                    }
+                    return;
                 }
                 return;
             }
